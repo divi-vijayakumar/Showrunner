@@ -113,7 +113,10 @@ async def stitch_segment(
         )
         normalized.append(out)
 
-    # 3) Mix VO onto each scene (silent track for scenes with no VO so concat stays aligned)
+    # 3) Mix VO onto each scene. Always pin to the full 5s scene length:
+    # pad shorter VOs with silence via `apad`, cap longer VOs via `-t 5`.
+    # Never rely on -shortest here — it was chopping scenes to VO length.
+    SCENE_SECS = 5
     with_audio: list[str] = []
     for i, vsrc in enumerate(normalized):
         out = os.path.join(work_dir, f"scene_{i:02d}.mp4")
@@ -123,9 +126,12 @@ async def stitch_segment(
                     "ffmpeg", "-y",
                     "-i", vsrc,
                     "-i", vo_by_scene[i],
+                    "-filter_complex", "[1:a]apad[a]",
+                    "-map", "0:v",
+                    "-map", "[a]",
                     "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "128k",
-                    "-shortest",
+                    "-t", str(SCENE_SECS),
                     out,
                 ]
             )
@@ -137,7 +143,7 @@ async def stitch_segment(
                     "-f", "lavfi", "-i", "anullsrc=r=24000:cl=stereo",
                     "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "128k",
-                    "-shortest",
+                    "-t", str(SCENE_SECS),
                     out,
                 ]
             )

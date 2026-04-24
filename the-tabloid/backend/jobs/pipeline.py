@@ -23,6 +23,7 @@ from ..personas import default_panel
 from ..video.infographics import render_infographics
 from ..video.seed_speech import generate_seed_speech
 from ..video.seedance import generate_seedance_clip
+from ..video.seedream import ensure_persona_portraits
 from ..video.stitch import stitch_segment
 
 log = logging.getLogger(__name__)
@@ -77,24 +78,33 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
         await db.update_segment(segment_id, {"status": "generating", "progress": 35})
 
         # 4. Broadcast script
-        script = await compile_script(channel, story, debate)
+        script = await compile_script(channel, story, debate, personas=personas)
         await db.update_segment(
             segment_id,
             {"progress": 40, "infographics": script.get("infographics", [])},
         )
 
-        # 5. Seedance clips — sequential for QPS safety
+        # 4b. Persona reference portraits (one per persona, cached across segments)
+        portraits_by_persona = await ensure_persona_portraits(personas)
+        await db.update_segment(segment_id, {"progress": 45})
+
+        # 5. Seedance clips — sequential for QPS safety; each solo scene uses
+        # its featured persona's portrait as the first frame (img2video) so
+        # the same "Kavitha" actually looks like the same Kavitha every time.
         clip_urls: list[str] = []
         scenes = script["scenes"]
         for i, scene in enumerate(scenes):
+            persona_id = scene.get("featured_persona_id")
+            first_frame = portraits_by_persona.get(persona_id) if persona_id else None
             clip_url = await generate_seedance_clip(
                 prompt=scene["seedance_prompt"],
                 camera_motion=scene.get("camera_motion", "dolly_in"),
                 duration=int(scene.get("duration", 5)),
                 aspect_ratio="9:16",
+                first_frame_image=first_frame,
             )
             clip_urls.append(clip_url)
-            pct = 40 + int((i + 1) / len(scenes) * 35)
+            pct = 45 + int((i + 1) / len(scenes) * 30)
             await db.update_segment(segment_id, {"progress": pct})
 
         # 6. Seed Speech VO per line

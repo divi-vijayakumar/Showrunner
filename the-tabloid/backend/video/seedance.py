@@ -51,15 +51,18 @@ async def generate_seedance_clip(
     aspect_ratio: str = "9:16",
     resolution: str = "1080p",
     model: str = "seedance-2.0",
+    first_frame_image: str | None = None,
 ) -> str:
-    """Submit a T2V job and poll until complete. Returns video URL."""
+    """Submit a T2V (or img2video, if `first_frame_image` is a URL) job and
+    poll until complete. Returns video URL.
+    """
     if settings().mock:
-        # Log what we *would* have asked Seedance to do, useful for demo prep.
         log.info(
-            "MOCK Seedance request — model=%s motion=%s ratio=%s prompt=%s",
+            "MOCK Seedance request — model=%s motion=%s ratio=%s ref=%s prompt=%s",
             model,
             camera_motion,
             aspect_ratio,
+            "yes" if first_frame_image else "no",
             prompt[:120],
         )
         return _ensure_mock_clip()
@@ -74,6 +77,10 @@ async def generate_seedance_clip(
         "camera_motion": camera_motion,
         "audio": False,
     }
+    if first_frame_image:
+        # Seedance img2video entry point. If the model tier doesn't accept a
+        # reference frame the API will 400 — caller should then retry without.
+        payload["first_frame_image"] = first_frame_image
     headers = {
         "Authorization": f"Bearer {settings().byteplus_api_key}",
         "Content-Type": "application/json",

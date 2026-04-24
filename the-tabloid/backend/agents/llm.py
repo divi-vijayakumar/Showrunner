@@ -105,43 +105,58 @@ def _mock_response(prompt: str, system: str | None) -> str:
     if "select the one story" in p or "story editor" in p:
         return json.dumps(_MOCK_STORY)
 
-    if "convert this news debate" in p or "broadcast director" in p:
+    if "director of the tabloid" in p or "convert this news debate" in p:
+        # Seven scenes matching the cinematic spine in script_compiler.SCENE_SPINE.
+        seven = [
+            ("Cold Open — Podium Sweep", "anchor", "crane_up", "WIDE_GROUP", "anticipation",
+             "Welcome to The Tabloid. I'm the anchor. Tonight — a story that refuses to stay quiet."),
+            ("Anchor Intro", "anchor", "dolly_in", "MEDIUM_SOLO", "grounded",
+             "Here's what we know, and here's what's being argued."),
+            ("Provocateur Take", "provocateur", "pan_right", "CLOSE_SOLO", "fire",
+             "If we pretend this is complicated, we're just protecting the people who caused it."),
+            ("Analyst Counter", "analyst", "orbit_right", "MEDIUM_SOLO", "measured",
+             "The numbers don't back that up. The pattern is the opposite of what you're claiming."),
+            ("Humanist Moment", "humanist", "dolly_in", "CLOSE_SOLO", "tender",
+             "I keep thinking about the person on the other end of this policy."),
+            ("Clash", "cross", "whip_pan", "FAST_CROSS_CUT", "heat",
+             "Four voices, one story, no more hiding behind talking points."),
+            ("Anchor Close", "anchor", "dolly_out", "WIDE_GROUP", "resolve",
+             "That's The Tabloid."),
+        ]
+        scenes = []
+        for i, (title, role, cam, shot, beat, vo) in enumerate(seven):
+            scenes.append(
+                {
+                    "scene_number": i + 1,
+                    "title": title,
+                    "featured_role": role,
+                    "featured_persona_id": None,  # filled in by _validate
+                    "duration": 5,
+                    "camera_motion": cam,
+                    "shot": shot,
+                    "emotional_beat": beat,
+                    "seedance_prompt": (
+                        f"Mock scene {i+1}: {title}. Broadcast set with four panelists, "
+                        f"camera {cam}, mood {beat}."
+                    ),
+                    "vo_line": vo,
+                }
+            )
         return json.dumps(
             {
-                "scenes": [
-                    {
-                        "scene_number": i + 1,
-                        "title": title,
-                        "duration": 5,
-                        "description": f"Scene {i+1}: {title}",
-                        "seedance_prompt": f"cinematic scene {i+1}, {title.lower()}, 9:16, high detail",
-                        "camera_motion": "dolly_in",
-                        "audio_note": "ambient",
-                        "vo_line": f"Line for scene {i+1}",
-                    }
-                    for i, title in enumerate(
-                        [
-                            "Cold Open",
-                            "Provocateur Take",
-                            "Analyst Data",
-                            "Humanist Moment",
-                            "Clash",
-                            "Anchor Close",
-                        ]
-                    )
-                ],
+                "scenes": scenes,
                 "infographics": [
                     {
                         "type": "stat_card",
-                        "scene_index": 2,
-                        "timestamp_in_scene": 1.0,
+                        "scene_index": 3,
+                        "timestamp_in_scene": 1.5,
                         "duration": 3.0,
-                        "data": {"stat_source": "Mock Research"},
+                        "data": {"number": "38%", "label": "Turnout lift", "stat_source": "Mock Research"},
                     },
                     {
                         "type": "quote_pull",
-                        "scene_index": 4,
-                        "timestamp_in_scene": 0.5,
+                        "scene_index": 2,
+                        "timestamp_in_scene": 1.0,
                         "duration": 3.5,
                         "data": {
                             "quote": "This is not a technology story, it's a power story.",
@@ -151,11 +166,12 @@ def _mock_response(prompt: str, system: str | None) -> str:
                 ],
                 "vo_script": [
                     {
-                        "persona_name": "Anchor",
-                        "agent": "anchor",
-                        "line": "Tonight on The Tabloid, a debate that refuses to stay quiet.",
-                        "scene_index": 0,
+                        "persona_name": s["featured_role"],
+                        "agent": s["featured_role"],
+                        "line": s["vo_line"],
+                        "scene_index": i,
                     }
+                    for i, s in enumerate(scenes)
                 ],
             }
         )

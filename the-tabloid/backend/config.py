@@ -33,6 +33,10 @@ class Settings:
     seed_llm_base_url: str = _env("SEED_LLM_BASE_URL", "https://api.byteplus.com/seed/v1")
     seed_llm_model: str = _env("SEED_LLM_MODEL", "seed-2.0")
 
+    # BytePlus image model (for persona reference portraits)
+    seedream_base_url: str = _env("SEEDREAM_BASE_URL", "https://api.byteplus.com/seedream/v1")
+    seedream_model: str = _env("SEEDREAM_MODEL", "seedream-3.0")
+
     # BytePlus TTS
     seed_speech_api_key: str = _env("SEED_SPEECH_API_KEY")
     seed_speech_base_url: str = _env("SEED_SPEECH_BASE_URL", "https://api.byteplus.com/speech/v1")
