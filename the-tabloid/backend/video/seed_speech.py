@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 import subprocess
 import uuid
 from typing import Any
@@ -26,6 +27,34 @@ log = logging.getLogger(__name__)
 _MOCK_DIR = "/tmp/tabloid_mock_vo"
 _ELEVENLABS_DIR = "/tmp/tabloid_vo_elevenlabs"
 _GOOGLE_DIR = "/tmp/tabloid_vo_google"
+
+
+# Strips quote chars Gemini TTS misreads as parser boundaries, plus leading
+# vocatives ("Murugan, ...") that Gemini interprets as being addressed instead
+# of content to speak. Contractions like "isn't" / "we're" are preserved by
+# only stripping apostrophes that aren't between word characters.
+_LEADING_VOCATIVE = re.compile(r"^([A-Z][a-zA-Z]{2,15}),\s+")
+_NON_WORD_APOS = re.compile(r"(?<!\w)'|'(?!\w)")
+
+
+def _clean_text_for_tts(text: str) -> str:
+    if not text:
+        return ""
+    s = (
+        text.replace("‘", "'")
+        .replace("’", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+    )
+    # Strip every double-quote (no English contraction uses one).
+    s = s.replace('"', "")
+    # Strip non-word-adjacent single quotes (keeps contractions).
+    s = _NON_WORD_APOS.sub("", s)
+    # Drop leading "Name, " — listener knows the speaker shift from the voice.
+    s = _LEADING_VOCATIVE.sub("", s)
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
+    return s.strip()
 
 
 # ElevenLabs voice library, keyed by (culture_bucket, gender). Each persona
@@ -187,7 +216,7 @@ async def _elevenlabs_tts(text: str, voice_params: dict[str, Any]) -> str:
         "Accept": "audio/mpeg",
     }
     payload = {
-        "text": text,
+        "text": _clean_text_for_tts(text),
         "model_id": settings().elevenlabs_model,
         "voice_settings": _eleven_voice_settings(voice_params),
     }
@@ -330,19 +359,23 @@ async def _google_tts(text: str, voice_params: dict[str, Any]) -> str:
     voice = _gemini_voice_for(voice_params)
     model = settings().google_tts_model
 
+    # Strip embedded quotes + leading vocatives — Gemini TTS frequently
+    # returns finishReason=OTHER on those, then generates no audio.
+    clean_line = _clean_text_for_tts(text)
+
     # Attempt 1: with accent + style directive — Gemini often applies it cleanly.
     accent = _accent_hint(culture)
     style = _gemini_style_hint(role, pace)
     directive = f"{accent}, {style}" if accent else style
-    steered = f"{directive}: {text}"
+    steered = f"{directive}: {clean_line}"
 
     pcm = await _call_gemini_tts(steered, voice, api_key, model)
 
     # Attempt 2: safety filter sometimes trips on the instruction prefix
-    # ("combative" etc.). Retry with just the raw text.
+    # ("combative" etc.). Retry with just the cleaned text.
     if pcm is None:
         log.info("Gemini TTS retry without directive")
-        pcm = await _call_gemini_tts(text, voice, api_key, model)
+        pcm = await _call_gemini_tts(clean_line, voice, api_key, model)
 
     os.makedirs(_GOOGLE_DIR, exist_ok=True)
     out_path = os.path.join(_GOOGLE_DIR, f"vo_{uuid.uuid4().hex[:8]}.mp3")
