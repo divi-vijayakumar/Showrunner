@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Any
 
 import httpx
 
@@ -41,10 +42,13 @@ async def call_seed2(
     *,
     temperature: float = 0.8,
     max_tokens: int = 800,
+    force_json: bool | None = None,
 ) -> str:
-    """Call Seed 2.0. Returns the raw assistant text.
+    """Call BytePlus ARK Seed. Returns the raw assistant text.
 
-    Uses an OpenAI-compatible chat completions shape, which BytePlus Seed exposes.
+    `force_json=True` adds response_format=json_object, which Seed respects —
+    the prompt asking for "JSON only" isn't enough on its own. When not
+    explicitly set, we auto-enable JSON mode if the prompt says "Return JSON".
     """
     if settings().mock:
         return _mock_response(prompt, system)
@@ -54,20 +58,28 @@ async def call_seed2(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload = {
+    if force_json is None:
+        force_json = "return json" in prompt.lower()
+
+    payload: dict[str, Any] = {
         "model": settings().seed_llm_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if force_json:
+        payload["response_format"] = {"type": "json_object"}
+
     headers = {
         "Authorization": f"Bearer {settings().byteplus_api_key}",
         "Content-Type": "application/json",
     }
     url = f"{settings().seed_llm_base_url.rstrip('/')}/chat/completions"
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            log.error("Seed error %s at %s: %s", resp.status_code, resp.url, resp.text[:300])
         resp.raise_for_status()
         data = resp.json()
 

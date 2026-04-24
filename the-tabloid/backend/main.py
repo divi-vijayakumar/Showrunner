@@ -84,14 +84,16 @@ async def generate(
     segment_id = await db.create_segment(channel)
     personas_override = body.personas if body else None
 
-    if settings().mock:
-        # Mock mode: run the pipeline in-process so the in-memory "firestore"
-        # stays in one place and no Celery worker is required.
+    # Run inline as a FastAPI background task unless TABLOID_USE_CELERY=1.
+    # Keeps local dev and demo-on-laptop zero-ops — no Redis/Celery worker needed.
+    # For production (separate API pods), flip the env var to dispatch to Celery.
+    use_celery = os.getenv("TABLOID_USE_CELERY", "").lower() in ("1", "true", "yes")
+    if use_celery and not settings().mock:
+        celery_generate.delay(segment_id, channel, personas_override)
+    else:
         background_tasks.add_task(
             lambda: asyncio.run(run_pipeline_async(segment_id, channel, personas_override))
         )
-    else:
-        celery_generate.delay(segment_id, channel, personas_override)
 
     return GenerateResponse(segment_id=segment_id)
 

@@ -36,6 +36,60 @@ class _MockStore:
 _MOCK = _MockStore()
 
 
+# Module-level cache so we don't re-run firebase init (and re-spam warnings)
+# for every request.
+_REAL_DB: Any = None
+_REAL_BUCKET: Any = None
+_INIT_TRIED: bool = False
+
+
+def _init_firebase_once() -> tuple[Any, Any]:
+    """Initialise firebase-admin at most once per process. Returns (db, bucket)
+    tuple; either side may be None if not configured."""
+    global _REAL_DB, _REAL_BUCKET, _INIT_TRIED
+    if _INIT_TRIED:
+        return _REAL_DB, _REAL_BUCKET
+    _INIT_TRIED = True
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, firestore, storage
+
+        cred_path = settings().firebase_credentials
+        if cred_path and os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+        else:
+            # gcloud Application Default Credentials. But ADC itself respects
+            # GOOGLE_APPLICATION_CREDENTIALS — if that env var points at a
+            # non-existent file (very common when users paste `.env.example`
+            # defaults), ADC errors out instead of falling through to the
+            # gcloud user creds at ~/.config/gcloud/application_default_credentials.json.
+            # Clear it so ADC uses the gcloud login.
+            if cred_path and not os.path.exists(cred_path):
+                os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+            cred = credentials.ApplicationDefault()
+
+        init_options: dict[str, str] = {}
+        if settings().firebase_project_id:
+            init_options["projectId"] = settings().firebase_project_id
+        if settings().firebase_storage_bucket:
+            init_options["storageBucket"] = settings().firebase_storage_bucket
+
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, init_options or None)
+
+        _REAL_DB = firestore.client()
+        if settings().firebase_storage_bucket:
+            _REAL_BUCKET = storage.bucket()
+
+    except Exception as exc:
+        log.warning("Firestore init failed (%s) — falling back to in-memory mock", exc)
+        _REAL_DB = None
+        _REAL_BUCKET = None
+
+    return _REAL_DB, _REAL_BUCKET
+
+
 class FirestoreClient:
     """Async façade. Writes go through the real firestore client when configured,
     otherwise they land in the process-local `_MOCK` store."""
@@ -44,32 +98,7 @@ class FirestoreClient:
         self._real = None
         self._bucket = None
         if not settings().mock:
-            self._init_real()
-
-    def _init_real(self) -> None:
-        try:
-            import firebase_admin
-            from firebase_admin import credentials, firestore, storage
-
-            if not firebase_admin._apps:
-                cred_path = settings().firebase_credentials
-                if cred_path and os.path.exists(cred_path):
-                    cred = credentials.Certificate(cred_path)
-                else:
-                    cred = credentials.ApplicationDefault()
-                firebase_admin.initialize_app(
-                    cred,
-                    {
-                        "projectId": settings().firebase_project_id or None,
-                        "storageBucket": settings().firebase_storage_bucket or None,
-                    },
-                )
-            self._real = firestore.client()
-            if settings().firebase_storage_bucket:
-                self._bucket = storage.bucket()
-        except Exception as exc:
-            log.warning("Firestore init failed (%s) — falling back to in-memory mock", exc)
-            self._real = None
+            self._real, self._bucket = _init_firebase_once()
 
     # -- Segment doc -------------------------------------------------------
 

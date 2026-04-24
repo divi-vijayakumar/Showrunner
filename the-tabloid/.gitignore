@@ -28,6 +28,7 @@ firebase-service-account*.json
 *.log
 .DS_Store
 coverage/
+dump.rdb
 
 # Scratch output from video pipeline runs
 backend/tmp/

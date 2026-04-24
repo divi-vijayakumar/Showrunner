@@ -67,23 +67,37 @@ def _persona_cache_key(persona: dict[str, Any]) -> str:
 
 
 async def generate_persona_portrait(persona: dict[str, Any]) -> str:
-    """Return a local file:// URL to the persona portrait, generating it once
-    and caching forever after."""
-    persona_id = persona.get("id") or _persona_cache_key(persona)
-    path = _portrait_cache_path(f"{persona_id}_{_persona_cache_key(persona)}")
+    """Return a URL to the persona portrait.
 
-    if os.path.exists(path) and os.path.getsize(path) > 0:
-        return f"file://{path}"
+    Mock mode: writes a role-tinted PNG locally and returns file:// — callers
+    that need a public URL (e.g. Seedance img2video) should skip first_frame
+    when they see file://.
+
+    Live mode: asks ARK Seedream for a URL and returns it verbatim. We do
+    NOT download + re-host because (a) Seedance needs a reachable URL for
+    img2video, and (b) the ARK CDN URL is good for the life of a segment run.
+    """
+    persona_id = persona.get("id") or _persona_cache_key(persona)
+    cache_key = f"{persona_id}_{_persona_cache_key(persona)}"
+    local_path = _portrait_cache_path(cache_key)
+    url_cache_path = local_path + ".url.txt"
+
+    # In-process URL cache — one portrait per persona per pipeline run.
+    if os.path.exists(url_cache_path):
+        cached = open(url_cache_path).read().strip()
+        if cached:
+            return cached
+    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+        return f"file://{local_path}"
 
     if settings().mock:
-        return _mock_portrait(persona, path)
+        return _mock_portrait(persona, local_path)
 
     prompt = _portrait_prompt(persona)
     payload: dict[str, Any] = {
         "model": settings().seedream_model,
         "prompt": prompt,
-        "aspect_ratio": "9:16",
-        "size": "1024x1820",
+        "size": "1024x1820",  # 9:16-ish; ARK accepts arbitrary sizes
         "response_format": "url",
         "n": 1,
     }
@@ -93,8 +107,10 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
     }
     url = f"{settings().seedream_base_url.rstrip('/')}/images/generations"
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
+    async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
         resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            log.error("Seedream %s: %s", resp.status_code, resp.text[:400])
         resp.raise_for_status()
         data = resp.json()
 
@@ -102,15 +118,9 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
     if not img_url:
         raise RuntimeError(f"Seedream returned no image URL: {data}")
 
-    # Persist to cache so Seedance can ingest from disk reliably regardless
-    # of how long the CDN URL is valid.
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        img = await client.get(img_url)
-        img.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(img.content)
-
-    return f"file://{path}"
+    with open(url_cache_path, "w") as f:
+        f.write(img_url)
+    return img_url
 
 
 def _extract_image_url(data: dict[str, Any]) -> str:

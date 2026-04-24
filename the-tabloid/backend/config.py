@@ -27,15 +27,36 @@ def _bool(key: str, default: bool = False) -> bool:
 
 
 class Settings:
-    # BytePlus LLM
-    byteplus_api_key: str = _env("BYTEPLUS_API_KEY")
-    byteplus_base_url: str = _env("BYTEPLUS_BASE_URL", "https://api.byteplus.com/seedance/v1")
-    seed_llm_base_url: str = _env("SEED_LLM_BASE_URL", "https://api.byteplus.com/seed/v1")
-    seed_llm_model: str = _env("SEED_LLM_MODEL", "seed-2.0")
+    # BytePlus ModelArk — one base URL hosts Seed (LLM), Seedance (video),
+    # Seedream (image). The region-specific host matters; pick AP-Southeast
+    # unless your key was provisioned elsewhere.
+    byteplus_api_key: str = _env("BYTEPLUS_API_KEY") or _env("ARK_API_KEY")
+    ark_base_url: str = _env("ARK_BASE_URL") or _env(
+        "BYTEPLUS_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"
+    )
+    # Kept for back-compat with existing .env files — all default to ark_base_url.
+    byteplus_base_url: str = _env("BYTEPLUS_BASE_URL") or _env(
+        "ARK_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"
+    )
+    seed_llm_base_url: str = _env("SEED_LLM_BASE_URL") or _env(
+        "ARK_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"
+    )
+    seed_llm_model: str = _env("SEED_LLM_MODEL") or _env(
+        "ARK_MODEL_SEED", "seed-1-6-250915"
+    )
 
-    # BytePlus image model (for persona reference portraits)
-    seedream_base_url: str = _env("SEEDREAM_BASE_URL", "https://api.byteplus.com/seedream/v1")
-    seedream_model: str = _env("SEEDREAM_MODEL", "seedream-3.0")
+    # Image model for persona reference portraits.
+    seedream_base_url: str = _env("SEEDREAM_BASE_URL") or _env(
+        "ARK_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"
+    )
+    seedream_model: str = _env("SEEDREAM_MODEL") or _env(
+        "ARK_MODEL_SEEDREAM", "seedream-5-0-260128"
+    )
+
+    # Video model.
+    seedance_model: str = _env("SEEDANCE_MODEL") or _env(
+        "ARK_MODEL_SEEDANCE", "dreamina-seedance-2-0-260128"
+    )
 
     # BytePlus TTS
     seed_speech_api_key: str = _env("SEED_SPEECH_API_KEY")
