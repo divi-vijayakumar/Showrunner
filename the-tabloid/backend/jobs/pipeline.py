@@ -14,6 +14,7 @@ import logging
 from celery import Celery
 
 from ..agents.debate_engine import run_debate
+from ..agents.research import research_story
 from ..agents.script_compiler import compile_script
 from ..agents.story_selector import enrich_with_bodies, fetch_headlines, select_story
 from ..config import channel_or_raise, settings
@@ -64,8 +65,15 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
         personas = personas_override or default_panel(channel)
         await db.update_segment(segment_id, {"personas": personas})
 
+        # 2b. Research agent → briefing for the debate
+        briefing = await research_story(channel, story, related_pool=enriched)
+        await db.update_segment(
+            segment_id,
+            {"briefing": briefing, "progress": 25},
+        )
+
         # 3. Debate (streams to Firestore as it goes)
-        debate = await run_debate(segment_id, channel, story, personas, db)
+        debate = await run_debate(segment_id, channel, story, personas, db, briefing=briefing)
         await db.update_segment(segment_id, {"status": "generating", "progress": 35})
 
         # 4. Broadcast script

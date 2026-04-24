@@ -32,14 +32,46 @@ _ROLE_INSTRUCTION = {
 }
 
 
+def _format_briefing(briefing: dict[str, Any] | None) -> str:
+    if not briefing:
+        return ""
+    lines: list[str] = ["RESEARCH BRIEFING (reference freely; stay factual):"]
+    if briefing.get("anchor_facts"):
+        lines.append("Anchor facts:")
+        for f in briefing["anchor_facts"][:6]:
+            claim = f.get("claim") if isinstance(f, dict) else str(f)
+            src = f.get("source", "") if isinstance(f, dict) else ""
+            lines.append(f"  · {claim}" + (f" [{src}]" if src else ""))
+    if briefing.get("counterpoints"):
+        lines.append("Counterpoints:")
+        for c in briefing["counterpoints"][:4]:
+            lines.append(f"  · {c}")
+    if briefing.get("pull_quotes"):
+        lines.append("Pull quotes:")
+        for q in briefing["pull_quotes"][:3]:
+            qt = q.get("quote") if isinstance(q, dict) else str(q)
+            who = q.get("attributed_to", "") if isinstance(q, dict) else ""
+            lines.append(f"  · \"{qt}\"" + (f" — {who}" if who else ""))
+    if briefing.get("fresh_data"):
+        lines.append("Fresh data points:")
+        for d in briefing["fresh_data"][:4]:
+            if isinstance(d, dict):
+                lines.append(f"  · {d.get('stat','')} {d.get('label','')} [{d.get('source','')}]")
+            else:
+                lines.append(f"  · {d}")
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     persona: dict[str, Any],
     channel: str,
     story: dict[str, Any],
     all_personas: list[dict[str, Any]],
+    briefing: dict[str, Any] | None = None,
 ) -> str:
     others = [p for p in all_personas if p["id"] != persona["id"]]
     others_text = "\n".join(f"- {p['name']} ({p['lean']})" for p in others)
+    briefing_block = _format_briefing(briefing)
 
     return f"""You are {persona['name']}, a {persona['role']} on The Tabloid — an AI news debate channel.
 
@@ -54,6 +86,8 @@ Headline: {story['headline']}
 Key facts: {', '.join(story.get('key_facts', []))}
 Core tension: {story.get('angle_a', '')} vs {story.get('angle_b', '')}
 
+{briefing_block}
+
 YOUR CO-PANELISTS:
 {others_text}
 
@@ -63,6 +97,7 @@ RULES:
 - Stay in character as {persona['name']} at all times
 - Speak in first person, directly and conversationally
 - Reference your cultural context naturally — don't announce it
+- When you reach for a stat or a quote, prefer ones from the RESEARCH BRIEFING.
 - Keep each response to 2-3 sentences MAX. This is broadcast TV, not a lecture.
 - React to what others say. Build on or challenge it directly.
 - As {persona['role']}: {_ROLE_INSTRUCTION[persona['role']]}
@@ -75,10 +110,14 @@ async def run_debate(
     story: dict[str, Any],
     personas: list[dict[str, Any]],
     db,
+    briefing: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run the turn-ordered debate, streaming each line to Firestore as it arrives."""
-    messages: list[dict[str, Any]] = []
+    """Run the turn-ordered debate, streaming each line to Firestore as it arrives.
 
+    If a `briefing` is supplied (from the research agent), it's spliced into
+    every panelist's system prompt so their stats and quotes land on real fact.
+    """
+    messages: list[dict[str, Any]] = []
     # Map one persona to each role (first match wins — there's exactly one per role today)
     role_to_persona = {p["role"]: p for p in personas}
 
@@ -88,7 +127,7 @@ async def run_debate(
             log.warning("No persona for role %s — skipping turn", role)
             continue
 
-        system_prompt = build_system_prompt(persona, channel, story, personas)
+        system_prompt = build_system_prompt(persona, channel, story, personas, briefing=briefing)
 
         history = "\n".join(
             f"{m['persona_name']}: {m['content']}" for m in messages[-4:]

@@ -37,6 +37,11 @@ class Settings:
     seed_speech_api_key: str = _env("SEED_SPEECH_API_KEY")
     seed_speech_base_url: str = _env("SEED_SPEECH_BASE_URL", "https://api.byteplus.com/speech/v1")
 
+    # OpenRouter (used by the research agent for Gemini with Google grounding)
+    openrouter_api_key: str = _env("OPENROUTER_API_KEY")
+    openrouter_base_url: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    openrouter_research_model: str = _env("OPENROUTER_RESEARCH_MODEL", "google/gemini-2.5-flash")
+
     # Firebase
     firebase_project_id: str = _env("FIREBASE_PROJECT_ID")
     firebase_storage_bucket: str = _env("FIREBASE_STORAGE_BUCKET")
