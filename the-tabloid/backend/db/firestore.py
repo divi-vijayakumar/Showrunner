@@ -7,11 +7,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import time
 import uuid
 from typing import Any
 
 from ..config import settings
+
+
+# Where video files live when Firebase Storage isn't configured.
+# The /api/videos/{segment_id}.mp4 route in main.py reads from here.
+LOCAL_VIDEO_DIR = "/tmp/tabloid_public_videos"
 
 log = logging.getLogger(__name__)
 
@@ -128,17 +134,31 @@ class FirestoreClient:
     # -- Storage -----------------------------------------------------------
 
     async def upload_video(self, local_path: str, segment_id: str) -> str:
-        """Upload final segment video and return a public URL."""
-        if not self._real or not self._bucket:
-            # Mock mode: return the local path (frontend is probably also mocking)
-            return f"file://{local_path}"
+        """Publish the finished segment video and return a URL the browser
+        can actually fetch.
 
-        blob_name = f"segments/{segment_id}.mp4"
-        blob = self._bucket.blob(blob_name)
+        Three modes:
+        - Firebase Storage configured → upload there, return public_url.
+        - No bucket but Firestore is configured → copy into LOCAL_VIDEO_DIR
+          so /api/videos/{id}.mp4 can serve it; return an absolute URL built
+          from PUBLIC_BASE_URL.
+        - Full mock (no real Firestore either) → same as above; frontend will
+          hit the backend endpoint.
+        """
+        if self._bucket:
+            blob_name = f"segments/{segment_id}.mp4"
+            blob = self._bucket.blob(blob_name)
 
-        def _upload() -> str:
-            blob.upload_from_filename(local_path, content_type="video/mp4")
-            blob.make_public()
-            return blob.public_url
+            def _upload() -> str:
+                blob.upload_from_filename(local_path, content_type="video/mp4")
+                blob.make_public()
+                return blob.public_url
 
-        return await asyncio.to_thread(_upload)
+            return await asyncio.to_thread(_upload)
+
+        # Storage-less path: copy into a stable location the backend serves.
+        os.makedirs(LOCAL_VIDEO_DIR, exist_ok=True)
+        dest = os.path.join(LOCAL_VIDEO_DIR, f"{segment_id}.mp4")
+        await asyncio.to_thread(shutil.copyfile, local_path, dest)
+        base = settings().public_base_url.rstrip("/")
+        return f"{base}/api/videos/{segment_id}.mp4"

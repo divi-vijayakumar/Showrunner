@@ -13,13 +13,15 @@ import logging
 from typing import Any
 
 import asyncio
+import os
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import CHANNELS, channel_or_raise, settings
-from .db.firestore import FirestoreClient
+from .db.firestore import LOCAL_VIDEO_DIR, FirestoreClient
 from .jobs.pipeline import _generate as run_pipeline_async
 from .jobs.pipeline import generate_segment as celery_generate
 from .personas import PERSONAS, default_panel
@@ -103,3 +105,20 @@ async def get_segment(segment_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="segment not found")
     messages = await db.list_messages(segment_id)
     return {"segment": seg, "messages": messages}
+
+
+@app.get("/api/videos/{segment_id}.mp4")
+async def get_video(segment_id: str):
+    """Stream a finished segment's mp4 when Firebase Storage isn't configured.
+
+    Accepts Range requests (FileResponse handles this), so the browser's video
+    element can seek and resume. Only used when upload_video copied the file
+    into LOCAL_VIDEO_DIR instead of Cloud Storage.
+    """
+    # Basic sanitisation: only accept the segment-id shape we hand out.
+    if not segment_id or any(c in segment_id for c in "/\\."):
+        raise HTTPException(status_code=400, detail="bad segment id")
+    path = os.path.join(LOCAL_VIDEO_DIR, f"{segment_id}.mp4")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="video not found")
+    return FileResponse(path, media_type="video/mp4", filename=f"{segment_id}.mp4")

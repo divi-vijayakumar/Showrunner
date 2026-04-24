@@ -51,6 +51,10 @@ class Settings:
     firebase_storage_bucket: str = _env("FIREBASE_STORAGE_BUCKET")
     firebase_credentials: str = _env("GOOGLE_APPLICATION_CREDENTIALS", "./firebase-service-account.json")
 
+    # Where the backend is reachable from a browser. Used to build absolute
+    # video URLs when we're serving mp4s from disk instead of Firebase Storage.
+    public_base_url: str = _env("PUBLIC_BASE_URL", "http://localhost:8000")
+
     # Celery
     redis_url: str = _env("REDIS_URL", "redis://localhost:6379/0")
 
