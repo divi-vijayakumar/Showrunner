@@ -36,6 +36,37 @@ export function Player({
     }
   }
 
+  const [downloading, setDownloading] = useState(false)
+
+  const downloadVideo = async () => {
+    const url = segment.video_url
+    if (!url || downloading) return
+    setDownloading(true)
+    // Fetch to Blob so the browser actually saves it, regardless of the
+    // server's Content-Disposition. Backend serves CORS `*` so this works
+    // cross-origin for the dev server and Firebase Storage URLs alike.
+    try {
+      const resp = await fetch(url, { credentials: 'omit' })
+      if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`)
+      const blob = await resp.blob()
+      const obj = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = obj
+      const safeHead = (headline || 'segment').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
+      a.download = `tabloid-${channel.id}-${safeHead}.mp4`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(obj), 2000)
+    } catch (err) {
+      // Fallback: open the raw URL in a new tab so the user can save via browser menu.
+      console.error('download failed, opening in new tab', err)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const enterFullscreen = async () => {
     const v = videoRef.current as (HTMLVideoElement & {
       webkitEnterFullscreen?: () => void
@@ -133,6 +164,19 @@ export function Player({
               <div className="flex items-center gap-2 pointer-events-auto">
                 <button
                   type="button"
+                  disabled={!segment.video_url || downloading}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    downloadVideo()
+                  }}
+                  className="bg-black/40 backdrop-blur-md border border-white/10 rounded-full w-9 h-9 flex items-center justify-center text-white/90 hover:bg-black/60 active:scale-95 transition disabled:opacity-50"
+                  aria-label="Download video"
+                  title="Download"
+                >
+                  <MSym name={downloading ? 'hourglass_top' : 'download'} className="!text-[18px]" />
+                </button>
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     if (isFullscreen) {
@@ -222,6 +266,18 @@ export function Player({
               New story <MSym name="arrow_forward" className="!text-sm" />
             </button>
           </div>
+
+          {segment.video_url && (
+            <button
+              type="button"
+              disabled={downloading}
+              onClick={downloadVideo}
+              className="mt-3 h-12 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all active:scale-95 font-mono text-[12px] tracking-[0.18em] uppercase text-white flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <MSym name={downloading ? 'hourglass_top' : 'download'} className="!text-sm" />
+              {downloading ? 'Saving…' : 'Save segment.mp4'}
+            </button>
+          )}
         </section>
       </main>
 
