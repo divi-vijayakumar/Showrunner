@@ -13,10 +13,34 @@ import logging
 import os
 import subprocess
 import uuid
+from functools import lru_cache
 
 import httpx
 
 log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _has_drawtext() -> bool:
+    """Some ffmpeg builds (notably homebrew's default on macOS) ship without
+    libfreetype, so the drawtext filter is missing. When that's the case we
+    silently skip ticker + channel bug overlays instead of failing the job."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-filters"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    if " drawtext " in r.stdout:
+        return True
+    log.warning(
+        "ffmpeg is missing the 'drawtext' filter — ticker + channel bug will be skipped. "
+        "Install an ffmpeg built with libfreetype to enable them."
+    )
+    return False
 
 
 async def download_file(url: str, dest: str) -> None:
@@ -179,24 +203,25 @@ def _build_filter_complex(
     channel_label: str,
 ) -> str:
     """Compose drawtext (ticker + bug) and per-overlay compositing."""
-    ticker = _escape_drawtext(ticker_text)
-    bug = _escape_drawtext(channel_label.upper())
-
-    # Scrolling ticker along bottom (wraps across width)
-    chain = (
-        "[0:v]"
-        f"drawtext=text='{ticker}':"
-        "fontsize=26:fontcolor=white:"
-        "box=1:boxcolor=black@0.65:boxborderw=10:"
-        "x='w-mod(t*140\\,w+tw)':y=h-70"
-        ","
-        # Channel bug top-right
-        f"drawtext=text='THE TABLOID · {bug}':"
-        "fontsize=22:fontcolor=white:"
-        "box=1:boxcolor=0x00dbe9@0.9:boxborderw=8:"
-        "x=w-tw-24:y=28"
-        "[v0]"
-    )
+    if _has_drawtext():
+        ticker = _escape_drawtext(ticker_text)
+        bug = _escape_drawtext(channel_label.upper())
+        chain = (
+            "[0:v]"
+            f"drawtext=text='{ticker}':"
+            "fontsize=26:fontcolor=white:"
+            "box=1:boxcolor=black@0.65:boxborderw=10:"
+            "x='w-mod(t*140\\,w+tw)':y=h-70"
+            ","
+            f"drawtext=text='THE TABLOID · {bug}':"
+            "fontsize=22:fontcolor=white:"
+            "box=1:boxcolor=0x00dbe9@0.9:boxborderw=8:"
+            "x=w-tw-24:y=28"
+            "[v0]"
+        )
+    else:
+        # Graceful fallback: pass the main video through without ticker/bug
+        chain = "[0:v]copy[v0]"
 
     current = "v0"
     for i, ov in enumerate(overlays):

@@ -12,12 +12,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+import asyncio
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .config import CHANNELS, channel_or_raise, settings
 from .db.firestore import FirestoreClient
+from .jobs.pipeline import _generate as run_pipeline_async
 from .jobs.pipeline import generate_segment as celery_generate
 from .personas import PERSONAS, default_panel
 
@@ -65,7 +68,11 @@ async def list_channels() -> dict[str, Any]:
 
 
 @app.post("/api/generate/{channel}", response_model=GenerateResponse)
-async def generate(channel: str, body: GenerateRequest | None = None) -> GenerateResponse:
+async def generate(
+    channel: str,
+    background_tasks: BackgroundTasks,
+    body: GenerateRequest | None = None,
+) -> GenerateResponse:
     try:
         channel_or_raise(channel)
     except ValueError as exc:
@@ -73,13 +80,16 @@ async def generate(channel: str, body: GenerateRequest | None = None) -> Generat
 
     db = FirestoreClient()
     segment_id = await db.create_segment(channel)
-
     personas_override = body.personas if body else None
 
-    # Hand off to Celery. In mock mode without a running worker, this will still
-    # enqueue the task; for pure-local dev without Redis, call the async form
-    # directly by setting CELERY_TASK_ALWAYS_EAGER=1 on the worker.
-    celery_generate.delay(segment_id, channel, personas_override)
+    if settings().mock:
+        # Mock mode: run the pipeline in-process so the in-memory "firestore"
+        # stays in one place and no Celery worker is required.
+        background_tasks.add_task(
+            lambda: asyncio.run(run_pipeline_async(segment_id, channel, personas_override))
+        )
+    else:
+        celery_generate.delay(segment_id, channel, personas_override)
 
     return GenerateResponse(segment_id=segment_id)
 

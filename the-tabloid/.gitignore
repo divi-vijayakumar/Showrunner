@@ -13,6 +13,9 @@ node_modules/
 dist/
 dist-ssr/
 .vite/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Env / secrets
 .env

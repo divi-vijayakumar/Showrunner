@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import subprocess
 from typing import Any
 
 import httpx
@@ -16,7 +18,30 @@ from ..config import settings
 log = logging.getLogger(__name__)
 
 
-_MOCK_CLIP_URL = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+_MOCK_DIR = "/tmp/tabloid_mock_clips"
+
+
+def _ensure_mock_clip() -> str:
+    """Generate a tiny 5s black 1080x1920 clip once, reuse on subsequent calls."""
+    os.makedirs(_MOCK_DIR, exist_ok=True)
+    path = os.path.join(_MOCK_DIR, "seedance_mock.mp4")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return f"file://{path}"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", "color=c=0x1a1a1f:s=1080x1920:d=5:r=30",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                path,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        open(path, "wb").close()
+    return f"file://{path}"
 
 
 async def generate_seedance_clip(
@@ -37,7 +62,7 @@ async def generate_seedance_clip(
             aspect_ratio,
             prompt[:120],
         )
-        return _MOCK_CLIP_URL
+        return _ensure_mock_clip()
 
     payload: dict[str, Any] = {
         "model": model,
