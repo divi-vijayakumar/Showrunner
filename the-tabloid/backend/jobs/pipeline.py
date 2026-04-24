@@ -15,7 +15,7 @@ from celery import Celery
 
 from ..agents.debate_engine import run_debate
 from ..agents.script_compiler import compile_script
-from ..agents.story_selector import fetch_headlines, select_story
+from ..agents.story_selector import enrich_with_bodies, fetch_headlines, select_story
 from ..config import channel_or_raise, settings
 from ..db.firestore import FirestoreClient
 from ..personas import default_panel
@@ -46,9 +46,11 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
     try:
         await db.update_segment(segment_id, {"status": "debate", "progress": 5})
 
-        # 1. Fetch RSS + select story
+        # 1. Fetch RSS + enrich top candidates with article bodies + select story
         headlines = await fetch_headlines(channel)
-        story = await select_story(channel, headlines)
+        enriched = await enrich_with_bodies(headlines)
+        await db.update_segment(segment_id, {"progress": 10})
+        story = await select_story(channel, enriched)
         await db.update_segment(
             segment_id,
             {
