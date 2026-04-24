@@ -143,12 +143,14 @@ SEEDANCE PROMPT GUIDELINES (each scene_prompt):
 - Lean into emotion: "fire", "steady", "trembling", "laughter", "disarmed".
 - 9:16 vertical composition, no on-screen text (we composite lower thirds).
 
-VOICEOVER:
-- Scene 1 vo_line must open with "Welcome to The Tabloid. I'm {{anchor_name}}..."
-  (substitute the real anchor name from the panel).
-- Scene 2+ vo_line should use real lines from the debate transcript, tightened
-  for broadcast (2 sentences max).
-- Scene 7 vo_line closes with "That's The Tabloid."
+VOICEOVER (HARD LIMITS — each scene is a 5-second clip):
+- Every vo_line must be ≤ 11 words. Count the words before you write it.
+  A 12-word line WILL get truncated — that is worse than a short punchy line.
+- Scene 1: "Welcome to The Tabloid. I'm {{anchor_name}}." (that's it — 6 words)
+- Scene 2: anchor frames the story in one short sentence.
+- Scenes 3-6: one sharp quote from that persona, trimmed ruthlessly.
+- Scene 7: "That's The Tabloid." (3 words)
+- No semicolons, no "and" chains. One clause, spoken naturally.
 
 INFOGRAPHICS:
 - Exactly 2: one stat_card on scene 4 (analyst) using data from the debate,

@@ -82,21 +82,31 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
     local_path = _portrait_cache_path(cache_key)
     url_cache_path = local_path + ".url.txt"
 
-    # In-process URL cache — one portrait per persona per pipeline run.
+    provider = settings().image_provider
+    is_mock = settings().mock or provider == "mock"
+
+    # Cache lookup. When the pipeline wants a public URL (fal or byteplus),
+    # only trust the URL cache — never return a stale file:// path from a
+    # previous mock run, because Fal/Seedance can't fetch local files.
     if os.path.exists(url_cache_path):
         cached = open(url_cache_path).read().strip()
-        if cached:
+        if cached and (is_mock or not cached.startswith("file://")):
             return cached
-    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+    if is_mock and os.path.exists(local_path) and os.path.getsize(local_path) > 0:
         return f"file://{local_path}"
 
-    provider = settings().image_provider
-    if settings().mock or provider == "mock":
+    if is_mock:
         return _mock_portrait(persona, local_path)
-    if provider == "fal":
-        raise NotImplementedError("IMAGE_PROVIDER=fal not wired yet — use 'mock' or 'byteplus'")
 
     prompt = _portrait_prompt(persona)
+
+    if provider == "fal":
+        from .fal import generate_fal_image
+        img_url = await generate_fal_image(prompt, size="portrait_16_9")
+        with open(url_cache_path, "w") as f:
+            f.write(img_url)
+        return img_url
+
     payload: dict[str, Any] = {
         "model": settings().seedream_model,
         "prompt": prompt,

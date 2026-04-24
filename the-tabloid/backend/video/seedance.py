@@ -147,6 +147,7 @@ async def generate_seedance_clip(
     resolution: str = "1080p",
     model: str = "",
     first_frame_image: str | None = None,
+    seed: int | None = None,
 ) -> str:
     """Generate one Seedance clip. Returns a URL to the finished mp4.
 
@@ -166,7 +167,21 @@ async def generate_seedance_clip(
         )
         return _ensure_mock_clip()
     if provider == "fal":
-        raise NotImplementedError("VIDEO_PROVIDER=fal not wired yet — use 'mock' or 'byteplus'")
+        from .fal import generate_fal_video
+        # Bake camera + composition into the prompt since the Fal models
+        # don't expose a separate camera-motion field.
+        rich_prompt = (
+            f"{prompt.strip()} "
+            f"Camera motion: {camera_motion.replace('_', ' ')}. "
+            f"Aspect ratio: {aspect_ratio}. Cinematic composition."
+        )
+        return await generate_fal_video(
+            rich_prompt,
+            duration_s=duration,
+            first_frame_image=first_frame_image,
+            seed=seed,
+            aspect_ratio=aspect_ratio,
+        )
 
     # Fold camera motion and resolution into the text prompt since ARK's
     # Seedance only takes `ratio` + `duration` + `content` natively.

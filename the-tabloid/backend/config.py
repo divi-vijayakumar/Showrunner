@@ -82,7 +82,7 @@ class Settings:
     # Provider toggles — default to BytePlus Seed everywhere since that's the
     # hackathon story. Flip individually when a given Seed surface is blocked.
     #   llm_provider:   byteplus | openrouter
-    #   tts_provider:   byteplus | elevenlabs
+    #   tts_provider:   byteplus | elevenlabs | google
     #   video_provider: byteplus | fal | mock
     #   image_provider: byteplus | fal | mock
     llm_provider: str = _env("LLM_PROVIDER", "byteplus").lower()
@@ -92,9 +92,15 @@ class Settings:
 
     # Fallback provider creds (set the ones you're actually using)
     elevenlabs_api_key: str = _env("ELEVENLABS_API_KEY")
-    elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+    elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+    google_aistudio_api_key: str = _env("GOOGLE_AISTUDIO_API_KEY") or _env("GOOGLE_API_KEY")
+    google_tts_model: str = _env("GOOGLE_TTS_MODEL", "gemini-2.5-flash-preview-tts")
     fal_api_key: str = _env("FAL_KEY") or _env("FAL_API_KEY")
-    fal_video_model: str = _env("FAL_VIDEO_MODEL", "fal-ai/minimax/hailuo-02/standard/image-to-video")
+    # Default to Fal-hosted Seedance 2.0 Pro img2video — same BytePlus Seed
+    # model, but via Fal's billing (so the ARK account overdue doesn't block us).
+    fal_video_model: str = _env(
+        "FAL_VIDEO_MODEL", "fal-ai/bytedance/seedance/v1/pro/image-to-video"
+    )
     fal_image_model: str = _env("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
 
     # Dev
