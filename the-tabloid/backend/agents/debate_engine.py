@@ -23,6 +23,27 @@ TURN_ORDER: list[str] = [
     "anchor",       # wrap
 ]
 
+# Extended order for podcast mode — ~16 turns with natural back-and-forth
+# structure (intro, three rounds of debate, two humanist beats, close).
+PODCAST_TURN_ORDER: list[str] = [
+    "anchor",
+    "provocateur",
+    "analyst",
+    "humanist",
+    "anchor",       # moderator nudge
+    "provocateur",  # escalate
+    "humanist",     # reality check
+    "analyst",      # data + history
+    "provocateur",  # third push
+    "analyst",      # numbers get sharper
+    "humanist",     # personal turn
+    "anchor",       # reframe
+    "provocateur",  # final hot take
+    "analyst",      # final counterweight
+    "humanist",     # emotional close
+    "anchor",       # wrap
+]
+
 
 _ROLE_INSTRUCTION = {
     "anchor": "Introduce and moderate. No strong opinion. Keep it moving. Ask the hard question.",
@@ -111,6 +132,7 @@ async def run_debate(
     personas: list[dict[str, Any]],
     db,
     briefing: dict[str, Any] | None = None,
+    turn_count: int = 8,
 ) -> list[dict[str, Any]]:
     """Run the turn-ordered debate, streaming each line to Firestore as it arrives.
 
@@ -121,7 +143,8 @@ async def run_debate(
     # Map one persona to each role (first match wins — there's exactly one per role today)
     role_to_persona = {p["role"]: p for p in personas}
 
-    for seq, role in enumerate(TURN_ORDER):
+    order = PODCAST_TURN_ORDER if turn_count >= 12 else TURN_ORDER
+    for seq, role in enumerate(order):
         persona = role_to_persona.get(role)
         if not persona:
             log.warning("No persona for role %s — skipping turn", role)

@@ -9,7 +9,9 @@ Each phase updates `progress` on the segment doc so the frontend can animate a b
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+from typing import Any
 
 from celery import Celery
 
@@ -24,7 +26,7 @@ from ..video.infographics import render_infographics
 from ..video.seed_speech import generate_seed_speech
 from ..video.seedance import generate_seedance_clip
 from ..video.seedream import ensure_persona_portraits
-from ..video.stitch import stitch_segment
+from ..video.stitch import stitch_podcast, stitch_segment
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +43,12 @@ celery_app.conf.update(
 )
 
 
-async def _generate(segment_id: str, channel: str, personas_override: list[dict] | None = None) -> None:
+async def _generate(
+    segment_id: str,
+    channel: str,
+    personas_override: list[dict] | None = None,
+    mode: str = "tabloid",
+) -> None:
     db = FirestoreClient()
     cfg = channel_or_raise(channel)
 
@@ -73,11 +80,22 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
             {"briefing": briefing, "progress": 25},
         )
 
-        # 3. Debate (streams to Firestore as it goes)
-        debate = await run_debate(segment_id, channel, story, personas, db, briefing=briefing)
+        # 3. Debate (streams to Firestore as it goes). Podcast mode runs
+        # a longer turn order so the audio-only format has room to breathe.
+        debate = await run_debate(
+            segment_id, channel, story, personas, db,
+            briefing=briefing,
+            turn_count=16 if mode == "podcast" else 8,
+        )
         await db.update_segment(segment_id, {"status": "generating", "progress": 35})
 
-        # 4. Broadcast script
+        # 3b. Podcast branch — skip video entirely. TTS every debate line
+        # and concat into one .mp3. Fastest, cheapest form of the product.
+        if mode == "podcast":
+            await _generate_podcast(segment_id, db, debate, personas, story, cfg)
+            return
+
+        # 4. Broadcast script (tabloid/video path only)
         script = await compile_script(channel, story, debate, personas=personas)
         await db.update_segment(
             segment_id,
@@ -91,39 +109,105 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
         # 5. Seedance clips — sequential for QPS safety; each solo scene uses
         # its featured persona's portrait as the first frame (img2video) so
         # the same "Kavitha" actually looks like the same Kavitha every time.
+        # Cross-cut scenes (no single persona) fall back to the anchor's
+        # portrait — img2video models need SOMETHING.
+        anchor_id = next((p["id"] for p in personas if p.get("role") == "anchor"), None)
+        anchor_frame = portraits_by_persona.get(anchor_id) if anchor_id else None
+        personas_by_id = {p["id"]: p for p in personas}
+
+        def _visual_lock(p: dict[str, Any]) -> str:
+            """One fixed sentence repeated verbatim in every scene prompt so
+            the video model can't re-imagine the persona's look per scene."""
+            voice = p.get("voice") or {}
+            g = voice.get("gender", "")
+            return (
+                f"SAME PERSON IN EVERY SCENE — {p['name']}: a {g} {p['role']}, "
+                f"cultural context {p.get('culture','')}. "
+                f"Match the provided first-frame image exactly — same face, "
+                f"same hair, same wardrobe, same complexion, same age."
+            )
+
+        def _seed_for(persona_id: str | None) -> int:
+            basis = (persona_id or "ensemble") + segment_id[:6]
+            return int(hashlib.sha1(basis.encode()).hexdigest(), 16) % 2**31
+
+        # Map scene_index → vo_line so we can fold dialogue INTO the Seedance
+        # prompt. When using a model that generates native audio (Seedance on
+        # Fal with generate_audio=true), this gives us lip-synced dialogue
+        # with zero separate-TTS work.
+        vo_by_scene: dict[int, dict[str, Any]] = {}
+        for vo in script.get("vo_script", []):
+            vo_by_scene[int(vo.get("scene_index", -1))] = vo
+
+        native_audio = settings().video_provider == "fal" and "seedance" in settings().fal_video_model
+
         clip_urls: list[str] = []
         scenes = script["scenes"]
         for i, scene in enumerate(scenes):
             persona_id = scene.get("featured_persona_id")
             first_frame = portraits_by_persona.get(persona_id) if persona_id else None
+            if not first_frame:
+                first_frame = anchor_frame
+
+            # Prepend the visual lock for the featured persona so the prompt
+            # can't drift them across scenes. Gemini's generated prompt becomes
+            # action/camera/emotion — the persona description is not optional.
+            featured = personas_by_id.get(persona_id) if persona_id else None
+            base_prompt = scene["seedance_prompt"]
+            locked_prompt = (
+                (_visual_lock(featured) + "\n\n" + base_prompt) if featured else base_prompt
+            )
+
+            # If the video model generates its own audio, splice the spoken
+            # line straight into the prompt so Seedance knows what to say +
+            # drives the lips to match.
+            vo = vo_by_scene.get(i)
+            if native_audio and vo and vo.get("line"):
+                speaker = vo.get("persona_name") or (featured or {}).get("name") or "Anchor"
+                locked_prompt = (
+                    locked_prompt
+                    + "\n\nSPOKEN LINE (lip-sync this exactly, natural delivery):\n"
+                    + f"{speaker}: \"{vo['line'].strip()}\""
+                )
+
             clip_url = await generate_seedance_clip(
-                prompt=scene["seedance_prompt"],
+                prompt=locked_prompt,
                 camera_motion=scene.get("camera_motion", "dolly_in"),
                 duration=int(scene.get("duration", 5)),
                 aspect_ratio="9:16",
                 first_frame_image=first_frame,
+                seed=_seed_for(persona_id or anchor_id),
             )
             clip_urls.append(clip_url)
             pct = 45 + int((i + 1) / len(scenes) * 30)
             await db.update_segment(segment_id, {"progress": pct})
 
-        # 6. Seed Speech VO per line
+        # 6. Voiceover. When the video model generates its own audio
+        # (Seedance with generate_audio=true), skip separate TTS entirely —
+        # the clips already contain lip-synced dialogue. Otherwise, TTS every
+        # VO line via the configured TTS_PROVIDER and composite in stitch.
         vo_clips: list[dict] = []
-        for vo in script.get("vo_script", []):
-            persona = next(
-                (p for p in personas if p["name"] == vo.get("persona_name")),
-                personas[0],
-            )
-            # Merge role into voice_params so TTS providers that pick voices
-            # by role (ElevenLabs) can do so; byteplus ignores extra keys.
-            voice_params = {**(persona.get("voice") or {}), "role": persona.get("role", "")}
-            audio_url = await generate_seed_speech(
-                text=vo.get("line", ""),
-                voice_params=voice_params,
-            )
-            vo_clips.append(
-                {"scene_index": int(vo.get("scene_index", 0)), "audio_url": audio_url}
-            )
+        if native_audio:
+            log.info("native_audio path: Seedance clips carry dialogue, skipping TTS")
+        else:
+            for vo in script.get("vo_script", []):
+                persona = next(
+                    (p for p in personas if p["name"] == vo.get("persona_name")),
+                    personas[0],
+                )
+                voice_params = {
+                    **(persona.get("voice") or {}),
+                    "role": persona.get("role", ""),
+                    "culture": persona.get("culture", ""),
+                    "name": persona.get("name", ""),
+                }
+                audio_url = await generate_seed_speech(
+                    text=vo.get("line", ""),
+                    voice_params=voice_params,
+                )
+                vo_clips.append(
+                    {"scene_index": int(vo.get("scene_index", 0)), "audio_url": audio_url}
+                )
         await db.update_segment(segment_id, {"progress": 85})
 
         # 7. Render infographic overlays
@@ -145,7 +229,13 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
         # 10. Done
         await db.update_segment(
             segment_id,
-            {"status": "ready", "progress": 100, "video_url": video_url},
+            {
+                "status": "ready",
+                "progress": 100,
+                "video_url": video_url,
+                "media_url": video_url,
+                "media_kind": "video",
+            },
         )
         log.info("segment %s ready at %s", segment_id, video_url)
 
@@ -157,7 +247,67 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
         raise
 
 
+async def _generate_podcast(
+    segment_id: str,
+    db,
+    debate: list[dict],
+    personas: list[dict],
+    story: dict,
+    cfg: dict,
+) -> None:
+    """TTS each debate line and concat into a single mp3. No video work.
+
+    Produces a natural listening experience: the 4 personas take turns
+    over one continuous audio track, with ~300ms beat gaps between lines.
+    """
+    audio_clips: list[str] = []
+    total = len(debate)
+    for i, m in enumerate(debate):
+        persona = next(
+            (p for p in personas if p["name"] == m.get("persona_name")),
+            personas[0],
+        )
+        voice_params = {
+            **(persona.get("voice") or {}),
+            "role": persona.get("role", ""),
+            "culture": persona.get("culture", ""),
+            "name": persona.get("name", ""),
+        }
+        audio_url = await generate_seed_speech(
+            text=m.get("content", ""),
+            voice_params=voice_params,
+        )
+        audio_clips.append(audio_url)
+        pct = 40 + int((i + 1) / total * 50)  # 40 → 90
+        await db.update_segment(segment_id, {"progress": pct})
+
+    final_path = await stitch_podcast(
+        audio_clips,
+        headline=story.get("headline", ""),
+        channel_label=cfg["label"],
+    )
+    await db.update_segment(segment_id, {"progress": 95})
+
+    media_url = await db.upload_audio(final_path, segment_id)
+    await db.update_segment(
+        segment_id,
+        {
+            "status": "ready",
+            "progress": 100,
+            "video_url": media_url,      # reused field so the frontend can stay simple
+            "media_url": media_url,
+            "media_kind": "audio",
+        },
+    )
+    log.info("podcast segment %s ready at %s", segment_id, media_url)
+
+
 @celery_app.task(name="tabloid.generate_segment")
-def generate_segment(segment_id: str, channel: str, personas_override: list[dict] | None = None) -> None:
+def generate_segment(
+    segment_id: str,
+    channel: str,
+    personas_override: list[dict] | None = None,
+    mode: str = "tabloid",
+) -> None:
     """Celery entry point — runs the async pipeline to completion."""
-    asyncio.run(_generate(segment_id, channel, personas_override))
+    asyncio.run(_generate(segment_id, channel, personas_override, mode))

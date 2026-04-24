@@ -70,6 +70,87 @@ def _run(cmd: list[str]) -> None:
         )
 
 
+def _has_audio_stream(path: str) -> bool:
+    """True if the file has at least one audio stream. We use this to
+    detect Seedance's native-audio output and avoid clobbering it."""
+    try:
+        r = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    return "audio" in r.stdout
+
+
+async def stitch_podcast(
+    audio_urls: list[str],
+    *,
+    headline: str,
+    channel_label: str,
+) -> str:
+    """Concat a list of TTS audio clips into one mp3 with small beat gaps
+    between speakers. Returns local path. No video work."""
+    work_dir = f"/tmp/tabloid_podcast_{uuid.uuid4().hex[:8]}"
+    os.makedirs(work_dir, exist_ok=True)
+
+    # 1) Download all TTS clips; normalise to mp3 at a common sample rate.
+    normalized: list[str] = []
+    for i, url in enumerate(audio_urls):
+        raw = os.path.join(work_dir, f"raw_{i:02d}.mp3")
+        await download_file(url, raw)
+        out = os.path.join(work_dir, f"norm_{i:02d}.mp3")
+        _run([
+            "ffmpeg", "-y",
+            "-i", raw,
+            "-ar", "44100", "-ac", "2",
+            "-codec:a", "libmp3lame", "-b:a", "160k",
+            out,
+        ])
+        normalized.append(out)
+
+    # 2) 300ms silent beat between speakers — feels natural, stops the
+    # episode sounding like a rapid-fire monologue.
+    beat_path = os.path.join(work_dir, "beat.mp3")
+    _run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-t", "0.3",
+        "-codec:a", "libmp3lame", "-b:a", "160k",
+        beat_path,
+    ])
+
+    # 3) Build concat list: clip / beat / clip / beat / ... / clip
+    concat_list = os.path.join(work_dir, "concat.txt")
+    with open(concat_list, "w") as f:
+        for i, p in enumerate(normalized):
+            f.write(f"file '{p}'\n")
+            if i != len(normalized) - 1:
+                f.write(f"file '{beat_path}'\n")
+
+    final_out = os.path.join(work_dir, "episode.mp3")
+    _run([
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", concat_list,
+        "-codec:a", "libmp3lame", "-b:a", "192k",
+        "-metadata", f"title={headline[:160]}",
+        "-metadata", f"album=The Tabloid · {channel_label}",
+        "-metadata", "artist=The Tabloid",
+        final_out,
+    ])
+
+    return final_out
+
+
 async def stitch_segment(
     clips: list[str],
     vo_clips: list[dict],
@@ -113,12 +194,16 @@ async def stitch_segment(
         )
         normalized.append(out)
 
-    # 3) Mix VO onto each scene. Always pin to the full 5s scene length:
-    # pad shorter VOs with silence via `apad`, cap longer VOs via `-t 5`.
-    # Never rely on -shortest here — it was chopping scenes to VO length.
+    # 3) Audio per scene. Three cases in priority order:
+    #    a) External VO URL for this scene → mix over the visual.
+    #    b) The source clip already has an audio track (Seedance native audio
+    #       — generate_audio=True) → re-encode video + keep its audio.
+    #    c) No audio anywhere → synthesize silence so concat stays aligned.
     SCENE_SECS = 5
     with_audio: list[str] = []
-    for i, vsrc in enumerate(normalized):
+    for i, src in enumerate(clip_paths):
+        vsrc = normalized[i]  # normalized has no audio (we stripped it)
+        has_native = _has_audio_stream(src)
         out = os.path.join(work_dir, f"scene_{i:02d}.mp4")
         if i in vo_by_scene:
             _run(
@@ -131,6 +216,22 @@ async def stitch_segment(
                     "-map", "[a]",
                     "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "128k",
+                    "-t", str(SCENE_SECS),
+                    out,
+                ]
+            )
+        elif has_native:
+            # Bring in video from the normalized (visually-correct) stream
+            # and the native audio from the original downloaded clip.
+            _run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", vsrc,
+                    "-i", src,
+                    "-map", "0:v",
+                    "-map", "1:a:0",
+                    "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "160k",
                     "-t", str(SCENE_SECS),
                     out,
                 ]
