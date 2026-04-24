@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TopAppBar } from '../components/TopAppBar'
 import { BottomNav } from '../components/BottomNav'
 import { AmbientOrbs } from '../components/AmbientOrbs'
@@ -20,7 +20,9 @@ export function Player({
   onBack: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const [playing, setPlaying] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const togglePlay = () => {
     const v = videoRef.current
@@ -33,6 +35,44 @@ export function Player({
       setPlaying(false)
     }
   }
+
+  const enterFullscreen = async () => {
+    const v = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void
+    }) | null
+    const frame = frameRef.current as (HTMLDivElement & {
+      webkitRequestFullscreen?: () => Promise<void>
+    }) | null
+    if (!v) return
+    // iOS Safari only exposes native video fullscreen
+    if (typeof v.webkitEnterFullscreen === 'function') {
+      v.webkitEnterFullscreen()
+      return
+    }
+    // Standard Fullscreen API — wrap the frame so the chrome/ticker overlays
+    // come along with the video.
+    try {
+      if (frame?.requestFullscreen) {
+        await frame.requestFullscreen()
+      } else if (frame?.webkitRequestFullscreen) {
+        await frame.webkitRequestFullscreen()
+      } else if (v.requestFullscreen) {
+        await v.requestFullscreen()
+      }
+      v.play().catch(() => {})
+      setPlaying(true)
+    } catch {
+      // user dismissed or not allowed — ignore
+    }
+  }
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
 
   const personas = segment.personas ?? channel.default_panel
   const headline = segment.headline ?? 'Tonight on The Tabloid'
@@ -56,15 +96,21 @@ export function Player({
       <main className="relative z-10 max-w-lg mx-auto px-6 pt-8 pb-32">
         {/* 9:16 player frame */}
         <div
-          className="relative aspect-[9/16] w-full glass-card rounded-3xl overflow-hidden shadow-2xl cursor-pointer"
+          ref={frameRef}
+          className={`relative w-full glass-card overflow-hidden shadow-2xl cursor-pointer group ${
+            isFullscreen
+              ? 'fixed inset-0 z-[60] aspect-auto h-screen rounded-none'
+              : 'aspect-[9/16] rounded-3xl'
+          }`}
           onClick={togglePlay}
         >
           {segment.video_url ? (
             <video
               ref={videoRef}
               src={segment.video_url}
-              className="absolute inset-0 w-full h-full object-cover"
+              className={`absolute inset-0 w-full h-full ${isFullscreen ? 'object-contain bg-black' : 'object-cover'}`}
               playsInline
+              controls={isFullscreen}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
             />
@@ -84,10 +130,27 @@ export function Player({
                   The Tabloid · {channel.label}
                 </span>
               </div>
-              <div className="bg-[#ff0033] px-3 py-1.5 rounded-md shadow-[0_0_15px_rgba(255,0,51,0.4)]">
-                <span className="font-display font-black italic text-white text-[10px] tracking-tight uppercase">
-                  The Tabloid
-                </span>
+              <div className="flex items-center gap-2 pointer-events-auto">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (isFullscreen) {
+                      document.exitFullscreen().catch(() => {})
+                    } else {
+                      enterFullscreen()
+                    }
+                  }}
+                  className="bg-black/40 backdrop-blur-md border border-white/10 rounded-full w-9 h-9 flex items-center justify-center text-white/90 hover:bg-black/60 active:scale-95 transition"
+                  aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                >
+                  <MSym name={isFullscreen ? 'fullscreen_exit' : 'fullscreen'} className="!text-[18px]" />
+                </button>
+                <div className="bg-[#ff0033] px-3 py-1.5 rounded-md shadow-[0_0_15px_rgba(255,0,51,0.4)]">
+                  <span className="font-display font-black italic text-white text-[10px] tracking-tight uppercase">
+                    The Tabloid
+                  </span>
+                </div>
               </div>
             </div>
             {!playing && (
