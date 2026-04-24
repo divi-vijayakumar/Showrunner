@@ -5,9 +5,17 @@ import { AmbientOrbs } from '../components/AmbientOrbs'
 import { MSym } from '../components/MSym'
 import { CHANNEL_ORDER, CHANNEL_UI } from '../config/channelUi'
 import { fetchChannels } from '../api'
-import type { ChannelId, ChannelInfo } from '../types'
+import type { ChannelId, ChannelInfo, SegmentMode } from '../types'
 
-export function ChannelSelect({ onPick }: { onPick: (ch: ChannelInfo) => void }) {
+export function ChannelSelect({
+  mode,
+  onModeChange,
+  onPick,
+}: {
+  mode: SegmentMode
+  onModeChange: (m: SegmentMode) => void
+  onPick: (ch: ChannelInfo) => void
+}) {
   const [channels, setChannels] = useState<Record<ChannelId, ChannelInfo> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,12 +37,42 @@ export function ChannelSelect({ onPick }: { onPick: (ch: ChannelInfo) => void })
       <TopAppBar status="on_air" />
 
       <main className="max-w-xl mx-auto px-6 pt-24 pb-12">
-        <div className="mb-8 space-y-2">
+        <div className="mb-6 space-y-2">
           <h2 className="font-mono text-on-surface-variant uppercase tracking-[0.2em] text-[11px] font-bold">
             PICK YOUR CHANNEL
           </h2>
           <div className="h-px w-12 bg-gradient-to-r from-fuchsia-500 to-transparent" />
         </div>
+
+        {/* Mode toggle */}
+        <div className="mb-3 glass-card rounded-full p-1 flex items-center gap-1">
+          {([
+            { id: 'podcast' as SegmentMode, label: 'Listen', icon: 'headphones' },
+            { id: 'tabloid' as SegmentMode, label: 'Watch', icon: 'play_circle' },
+          ]).map((opt) => {
+            const active = mode === opt.id
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onModeChange(opt.id)}
+                className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-full transition-all ${
+                  active
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/20'
+                    : 'text-on-surface-variant hover:text-white'
+                }`}
+              >
+                <MSym name={opt.icon} filled={active} className="!text-[16px]" />
+                <span className="font-mono text-[11px] tracking-[0.2em] uppercase">{opt.label}</span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="mb-8 font-mono text-[10px] text-on-surface-variant/70 tracking-wider uppercase">
+          {mode === 'podcast'
+            ? 'Podcast · 16-turn debate · audio only · cheap'
+            : '⚠ Video render burns video-model credit per run'}
+        </p>
 
         {error && (
           <div className="glass-card rounded-xl p-4 mb-6 text-sm text-red-300">
@@ -65,7 +103,7 @@ export function ChannelSelect({ onPick }: { onPick: (ch: ChannelInfo) => void })
                       {ch?.label ?? id.replace('_', ' ')}
                     </h3>
                     <p className="font-mono text-[11px] text-on-surface-variant/60 uppercase tracking-wider">
-                      4 agents · rss live
+                      {mode === 'podcast' ? '16 turns · audio' : '4 agents · video'} · rss live
                     </p>
                   </div>
                 </div>

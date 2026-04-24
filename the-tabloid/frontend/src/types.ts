@@ -10,6 +10,10 @@ export type ChannelId =
 
 export type SegmentStatus = 'queued' | 'debate' | 'generating' | 'ready' | 'failed'
 
+export type SegmentMode = 'tabloid' | 'podcast'
+
+export type MediaKind = 'video' | 'audio'
+
 export interface PersonaVoice {
   gender?: string
   pace?: number
@@ -37,11 +41,14 @@ export interface ChannelInfo {
 
 export interface Segment {
   channel: ChannelId
+  mode?: SegmentMode
   headline?: string
   source?: string
   status: SegmentStatus
   progress: number
   video_url?: string
+  media_url?: string
+  media_kind?: MediaKind
   personas?: Persona[]
   infographics?: unknown[]
   error?: string

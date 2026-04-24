@@ -39,7 +39,7 @@ export function Player({
   const [downloading, setDownloading] = useState(false)
 
   const downloadVideo = async () => {
-    const url = segment.video_url
+    const url = segment.media_url ?? segment.video_url
     if (!url || downloading) return
     setDownloading(true)
     // Fetch to Blob so the browser actually saves it, regardless of the
@@ -53,7 +53,8 @@ export function Player({
       const a = document.createElement('a')
       a.href = obj
       const safeHead = (headline || 'segment').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
-      a.download = `tabloid-${channel.id}-${safeHead}.mp4`
+      const ext = isAudio ? 'mp3' : 'mp4'
+      a.download = `tabloid-${channel.id}-${safeHead}.${ext}`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -109,6 +110,7 @@ export function Player({
   const headline = segment.headline ?? 'Tonight on The Tabloid'
   const source = segment.source ?? channel.label
   const tickerText = `  ·  ${headline.toUpperCase()}  ·  ${source.toUpperCase()}  ·  THE TABLOID  `
+  const isAudio = segment.media_kind === 'audio' || segment.mode === 'podcast'
 
   return (
     <div className="min-h-screen relative pb-28">
@@ -125,7 +127,59 @@ export function Player({
       />
 
       <main className="relative z-10 max-w-lg mx-auto px-6 pt-8 pb-32">
-        {/* 9:16 player frame */}
+        {isAudio && (
+          <div className="glass-card rounded-3xl overflow-hidden shadow-2xl p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-fuchsia-400">
+                Podcast · {channel.label}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-white/40">
+                The Tabloid
+              </span>
+            </div>
+            <h2 className="font-heading text-2xl text-white leading-tight mb-5">
+              {headline}
+            </h2>
+            {/* Stacked persona avatars */}
+            <div className="flex -space-x-3 mb-5">
+              {personas.slice(0, 4).map((p) => {
+                const role = ROLE_UI[p.role]
+                return (
+                  <div
+                    key={p.id}
+                    className={`w-10 h-10 rounded-full ${role.bg}/30 border-2 border-[#0b0810] flex items-center justify-center`}
+                    title={`${p.name} · ${p.role}`}
+                  >
+                    <span className="font-display font-black text-xs text-white">
+                      {p.name[0]}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {segment.media_url ? (
+              <audio
+                ref={(el) => {
+                  // Reuse the video ref so togglePlay + download work uniformly.
+                  (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current =
+                    el as unknown as HTMLVideoElement
+                }}
+                src={segment.media_url}
+                controls
+                className="w-full"
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+              />
+            ) : (
+              <div className="font-mono text-on-surface-variant text-sm uppercase tracking-wider">
+                No audio URL
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 9:16 player frame (tabloid/video mode only) */}
+        {!isAudio && (
         <div
           ref={frameRef}
           className={`relative w-full glass-card overflow-hidden shadow-2xl cursor-pointer group ${
@@ -214,6 +268,7 @@ export function Player({
             </div>
           </div>
         </div>
+        )}
 
         {/* Meta */}
         <section className="mt-8 flex flex-col gap-4">
@@ -267,7 +322,7 @@ export function Player({
             </button>
           </div>
 
-          {segment.video_url && (
+          {(segment.media_url || segment.video_url) && (
             <button
               type="button"
               disabled={downloading}
@@ -275,7 +330,7 @@ export function Player({
               className="mt-3 h-12 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all active:scale-95 font-mono text-[12px] tracking-[0.18em] uppercase text-white flex items-center justify-center gap-2 disabled:opacity-60"
             >
               <MSym name={downloading ? 'hourglass_top' : 'download'} className="!text-sm" />
-              {downloading ? 'Saving…' : 'Save segment.mp4'}
+              {downloading ? 'Saving…' : (isAudio ? 'Save episode.mp3' : 'Save segment.mp4')}
             </button>
           )}
         </section>
