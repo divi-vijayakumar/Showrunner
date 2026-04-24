@@ -44,22 +44,42 @@ async def call_seed2(
     max_tokens: int = 800,
     force_json: bool | None = None,
 ) -> str:
-    """Call BytePlus ARK Seed. Returns the raw assistant text.
+    """Call the configured LLM (BytePlus Seed by default, OpenRouter/Gemini
+    as a fallback). Returns the raw assistant text.
 
-    `force_json=True` adds response_format=json_object, which Seed respects —
-    the prompt asking for "JSON only" isn't enough on its own. When not
-    explicitly set, we auto-enable JSON mode if the prompt says "Return JSON".
+    `force_json=True` adds response_format=json_object; both Seed and Gemini
+    respect it. When not explicitly set, we auto-enable JSON mode if the
+    prompt says "Return JSON".
     """
     if settings().mock:
         return _mock_response(prompt, system)
 
+    if force_json is None:
+        force_json = "return json" in prompt.lower()
+
+    provider = settings().llm_provider
+    if provider == "openrouter":
+        return await _call_openrouter(
+            prompt, system, temperature=temperature, max_tokens=max_tokens, force_json=force_json
+        )
+    # Default = byteplus
+    return await _call_byteplus_seed(
+        prompt, system, temperature=temperature, max_tokens=max_tokens, force_json=force_json
+    )
+
+
+async def _call_byteplus_seed(
+    prompt: str,
+    system: str | None,
+    *,
+    temperature: float,
+    max_tokens: int,
+    force_json: bool,
+) -> str:
     messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-
-    if force_json is None:
-        force_json = "return json" in prompt.lower()
 
     payload: dict[str, Any] = {
         "model": settings().seed_llm_model,
@@ -80,6 +100,52 @@ async def call_seed2(
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code >= 400:
             log.error("Seed error %s at %s: %s", resp.status_code, resp.url, resp.text[:300])
+        resp.raise_for_status()
+        data = resp.json()
+
+    return data["choices"][0]["message"]["content"]
+
+
+async def _call_openrouter(
+    prompt: str,
+    system: str | None,
+    *,
+    temperature: float,
+    max_tokens: int,
+    force_json: bool,
+) -> str:
+    """OpenRouter Gemini fallback. Same chat-completions shape as Seed, different host."""
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    # Reuse the OpenRouter research-model env var for LLM too — user already
+    # has one key + one model configured.
+    from ..config import settings as _s
+    model = _s().openrouter_research_model
+
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if force_json:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {
+        "Authorization": f"Bearer {settings().openrouter_api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://tabloid.local",
+        "X-Title": "The Tabloid",
+    }
+    url = f"{settings().openrouter_base_url.rstrip('/')}/chat/completions"
+
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            log.error("OpenRouter %s at %s: %s", resp.status_code, resp.url, resp.text[:300])
         resp.raise_for_status()
         data = resp.json()
 

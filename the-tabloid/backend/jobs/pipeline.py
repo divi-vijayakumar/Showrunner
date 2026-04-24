@@ -114,9 +114,12 @@ async def _generate(segment_id: str, channel: str, personas_override: list[dict]
                 (p for p in personas if p["name"] == vo.get("persona_name")),
                 personas[0],
             )
+            # Merge role into voice_params so TTS providers that pick voices
+            # by role (ElevenLabs) can do so; byteplus ignores extra keys.
+            voice_params = {**(persona.get("voice") or {}), "role": persona.get("role", "")}
             audio_url = await generate_seed_speech(
                 text=vo.get("line", ""),
-                voice_params=persona.get("voice", {}),
+                voice_params=voice_params,
             )
             vo_clips.append(
                 {"scene_index": int(vo.get("scene_index", 0)), "audio_url": audio_url}

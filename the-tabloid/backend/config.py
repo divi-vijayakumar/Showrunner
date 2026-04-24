@@ -79,6 +79,24 @@ class Settings:
     # Celery
     redis_url: str = _env("REDIS_URL", "redis://localhost:6379/0")
 
+    # Provider toggles — default to BytePlus Seed everywhere since that's the
+    # hackathon story. Flip individually when a given Seed surface is blocked.
+    #   llm_provider:   byteplus | openrouter
+    #   tts_provider:   byteplus | elevenlabs
+    #   video_provider: byteplus | fal | mock
+    #   image_provider: byteplus | fal | mock
+    llm_provider: str = _env("LLM_PROVIDER", "byteplus").lower()
+    tts_provider: str = _env("TTS_PROVIDER", "byteplus").lower()
+    video_provider: str = _env("VIDEO_PROVIDER", "byteplus").lower()
+    image_provider: str = _env("IMAGE_PROVIDER", "byteplus").lower()
+
+    # Fallback provider creds (set the ones you're actually using)
+    elevenlabs_api_key: str = _env("ELEVENLABS_API_KEY")
+    elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+    fal_api_key: str = _env("FAL_KEY") or _env("FAL_API_KEY")
+    fal_video_model: str = _env("FAL_VIDEO_MODEL", "fal-ai/minimax/hailuo-02/standard/image-to-video")
+    fal_image_model: str = _env("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
+
     # Dev
     mock: bool = _bool("TABLOID_MOCK", False)
 

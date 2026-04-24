@@ -181,8 +181,26 @@ Return JSON only, matching this shape exactly:
 
 scene_index is 0-based (scene 1 → scene_index 0). Put one VO entry per scene."""
 
-    raw = await call_seed2(prompt, temperature=0.65, max_tokens=2200)
-    script = parse_json(raw)
+    # Script output is dense JSON (7 scenes + infographics + VO). Gemini likes
+    # 4k-6k tokens here; Seed is more compact. Allow 6k to avoid truncation
+    # mid-JSON, which shows up as "Expecting ',' delimiter" at parse time.
+    raw = await call_seed2(prompt, temperature=0.65, max_tokens=6000)
+    try:
+        script = parse_json(raw)
+    except Exception as first_err:
+        # One retry with a tighter prompt if the model blew the JSON.
+        retry_prompt = (
+            prompt
+            + "\n\nREMINDER: your previous attempt produced invalid JSON. "
+            "Return ONLY a single valid JSON object. Keep seedance_prompt and "
+            "vo_line entries short enough that the full object fits in the "
+            "response budget. No prose, no code fences, no trailing commas."
+        )
+        raw = await call_seed2(retry_prompt, temperature=0.5, max_tokens=6000)
+        try:
+            script = parse_json(raw)
+        except Exception:
+            raise first_err
     _validate(script, personas)
     return script
 

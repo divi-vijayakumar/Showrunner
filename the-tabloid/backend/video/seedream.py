@@ -90,8 +90,11 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
     if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
         return f"file://{local_path}"
 
-    if settings().mock:
+    provider = settings().image_provider
+    if settings().mock or provider == "mock":
         return _mock_portrait(persona, local_path)
+    if provider == "fal":
+        raise NotImplementedError("IMAGE_PROVIDER=fal not wired yet — use 'mock' or 'byteplus'")
 
     prompt = _portrait_prompt(persona)
     payload: dict[str, Any] = {

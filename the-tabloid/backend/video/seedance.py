@@ -155,7 +155,8 @@ async def generate_seedance_clip(
     public URL; file:// URLs are stripped (caller should skip img2video in
     that case).
     """
-    if settings().mock:
+    provider = settings().video_provider
+    if settings().mock or provider == "mock":
         log.info(
             "MOCK Seedance request — motion=%s ratio=%s ref=%s prompt=%s",
             camera_motion,
@@ -164,6 +165,8 @@ async def generate_seedance_clip(
             prompt[:120],
         )
         return _ensure_mock_clip()
+    if provider == "fal":
+        raise NotImplementedError("VIDEO_PROVIDER=fal not wired yet — use 'mock' or 'byteplus'")
 
     # Fold camera motion and resolution into the text prompt since ARK's
     # Seedance only takes `ratio` + `duration` + `content` natively.
