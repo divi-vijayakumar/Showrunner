@@ -350,15 +350,19 @@ async def _generate_sample(
     await db.update_segment(segment_id, {"progress": 55})
 
     # 2) Single Seedance clip — anchor delivering the open line + the headline
-    # as a broadcast teaser. With generate_audio=true on Seedance Pro this
-    # comes back lip-synced with native voice.
+    # as a broadcast teaser. On Seedance 2.0 with generate_audio=true the
+    # spoken line in the prompt drives both the audio AND lip movement.
     teaser_line = f"{anchor.open_line} {story.get('headline','')}"
+    accent = (anchor.voice or {}).get("accent_hint", "")
+    accent_clause = f" Accent: {accent}." if accent else ""
     teaser_prompt = (
         f"SAME PERSON IN EVERY SCENE — {anchor.name}: {anchor.visual_description}\n\n"
         f"Camera: medium close-up, eye-line locked to camera, slow dolly-in "
-        f"over 5 seconds. Studio ambient only. 9:16 vertical, 1080p, "
-        f"cinematic broadcast feel.\n\n"
-        f"SPOKEN LINE (lip-sync this exactly, natural broadcast delivery):\n"
+        f"over 5 seconds. 9:16 vertical, 720p, cinematic broadcast feel. "
+        f"Anchor speaks directly to camera with natural broadcast cadence."
+        f"{accent_clause}\n\n"
+        f"SPOKEN LINE (the anchor MUST speak this exact line, lip-synced, "
+        f"clearly audible, no other dialogue, no music):\n"
         f'{anchor.name}: "{teaser_line}"'
     )
 
