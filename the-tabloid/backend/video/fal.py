@@ -99,19 +99,26 @@ async def generate_fal_video(
 
     payload: dict[str, Any] = {
         "prompt": prompt,
-        # Seedance accepts 3/5/10; clamp. Hailuo accepts 6/10 as strings.
+        # Seedance accepts 5 or 10. Hailuo accepts "6" or "10" as strings.
         "duration": _duration_for_model(model, duration_s),
-        "resolution": "1080p",
         "aspect_ratio": aspect_ratio,
     }
-    if "seedance" in model:
-        # Seedance can generate native audio (lip-synced dialogue + ambient)
-        # when we include the spoken line in the prompt. This kills the
-        # separate-TTS step and the "audio doesn't match video" feel.
+    if "seedance-2.0" in model:
+        # Seedance 2.0 (fast or premium) — synchronized native audio when
+        # generate_audio=true. Tops out at 720p; pricing scales linearly.
         payload["generate_audio"] = True
-    if "hailuo" in model:
+        payload["resolution"] = "720p"
+    elif "seedance" in model:
+        # Older v1 paths: silent only; resolution up to 1080p. The flag is
+        # ignored by the API but we keep it so the param shape doesn't
+        # split across versions.
+        payload["resolution"] = "1080p"
+        payload["generate_audio"] = True
+    elif "hailuo" in model:
         payload["resolution"] = "768P"
         payload["prompt_optimizer"] = True
+    else:
+        payload["resolution"] = "1080p"
     if seed is not None:
         payload["seed"] = int(seed)
     if first_frame_image and not first_frame_image.startswith("file://"):

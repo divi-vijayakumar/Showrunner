@@ -101,10 +101,14 @@ class Settings:
     google_aistudio_api_key: str = _env("GOOGLE_AISTUDIO_API_KEY") or _env("GOOGLE_API_KEY")
     google_tts_model: str = _env("GOOGLE_TTS_MODEL", "gemini-2.5-flash-preview-tts")
     fal_api_key: str = _env("FAL_KEY") or _env("FAL_API_KEY")
-    # Default to Fal-hosted Seedance 2.0 Pro img2video — same BytePlus Seed
-    # model, but via Fal's billing (so the ARK account overdue doesn't block us).
+    # Fal-hosted Seedance 2.0 fast img2video — same BytePlus Seed family,
+    # billed via Fal, AND natively generates synchronized audio (the v1 path
+    # we used before is silent-only, which is why early runs had no voice).
+    # Override with FAL_VIDEO_MODEL to pin a different tier:
+    #   bytedance/seedance-2.0/image-to-video       — premium, ~$0.30/sec
+    #   bytedance/seedance-2.0/fast/image-to-video  — fast,    ~$0.24/sec  (default)
     fal_video_model: str = _env(
-        "FAL_VIDEO_MODEL", "fal-ai/bytedance/seedance/v1/pro/image-to-video"
+        "FAL_VIDEO_MODEL", "bytedance/seedance-2.0/fast/image-to-video"
     )
     fal_image_model: str = _env("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
 
