@@ -1,4 +1,12 @@
-import type { ChannelId, ChannelInfo, DebateMessage, Persona, Segment, SegmentMode } from './types'
+import type {
+  ChannelId,
+  ChannelInfo,
+  DebateMessage,
+  Persona,
+  Segment,
+  SegmentMode,
+  StoryCandidate,
+} from './types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/\/$/, '')
 
@@ -21,11 +29,23 @@ export async function startSegment(
   channel: ChannelId,
   personas?: Persona[],
   mode: SegmentMode = 'tabloid',
+  story?: StoryCandidate | null,
 ): Promise<{ segment_id: string }> {
   return http(`/api/generate/${channel}`, {
     method: 'POST',
-    body: JSON.stringify({ personas: personas ?? null, mode }),
+    body: JSON.stringify({
+      personas: personas ?? null,
+      mode,
+      story: story ?? null,
+    }),
   })
+}
+
+export async function fetchChannelStories(
+  channel: ChannelId,
+  limit: number = 8,
+): Promise<{ channel: ChannelId; stories: StoryCandidate[] }> {
+  return http(`/api/channels/${channel}/stories?limit=${limit}`)
 }
 
 export async function fetchSegment(

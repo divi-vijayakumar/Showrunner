@@ -18,7 +18,12 @@ from celery import Celery
 from ..agents.debate_engine import run_debate
 from ..agents.research import research_story
 from ..agents.script_compiler import compile_script
-from ..agents.story_selector import enrich_with_bodies, fetch_headlines, select_story
+from ..agents.story_selector import (
+    enrich_with_bodies,
+    fetch_headlines,
+    select_specific_story,
+    select_story,
+)
 from ..config import channel_or_raise, settings
 from ..db.firestore import FirestoreClient
 from ..personas import default_panel
@@ -48,6 +53,7 @@ async def _generate(
     channel: str,
     personas_override: list[dict] | None = None,
     mode: str = "tabloid",
+    picked_story: dict | None = None,
 ) -> None:
     db = FirestoreClient()
     cfg = channel_or_raise(channel)
@@ -55,16 +61,25 @@ async def _generate(
     try:
         await db.update_segment(segment_id, {"status": "debate", "progress": 5})
 
-        # 1. Fetch RSS + enrich top candidates with article bodies + select story
-        headlines = await fetch_headlines(channel)
-        enriched = await enrich_with_bodies(headlines)
-        await db.update_segment(segment_id, {"progress": 10})
-        story = await select_story(channel, enriched)
+        if picked_story:
+            # User chose this specific story in the UI — go straight to brief.
+            await db.update_segment(segment_id, {"progress": 10})
+            story = await select_specific_story(channel, picked_story)
+            # Keep the candidate pool for the research agent's sibling matching.
+            enriched = [picked_story]
+        else:
+            # Auto-pick path: fetch RSS, enrich, let the LLM choose.
+            headlines = await fetch_headlines(channel)
+            enriched = await enrich_with_bodies(headlines)
+            await db.update_segment(segment_id, {"progress": 10})
+            story = await select_story(channel, enriched)
+
         await db.update_segment(
             segment_id,
             {
                 "headline": story.get("headline"),
                 "source": story.get("source"),
+                "story_brief": story,           # persist for the AgentLog UI
                 "progress": 15,
             },
         )
@@ -247,6 +262,30 @@ async def _generate(
         raise
 
 
+async def _silent_fallback_url(text: str) -> str:
+    """Best-effort silent mp3 sized to the line length. Used when a TTS call
+    fails outright so one bad line doesn't kill the episode."""
+    import os, subprocess, uuid
+    out_dir = "/tmp/tabloid_podcast_silent"
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"silent_{uuid.uuid4().hex[:8]}.mp3")
+    secs = max(1.5, min(6.0, len(text) / 15))
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                "-t", f"{secs:.2f}",
+                "-codec:a", "libmp3lame", "-b:a", "128k",
+                path,
+            ],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        open(path, "wb").close()
+    return f"file://{path}"
+
+
 async def _generate_podcast(
     segment_id: str,
     db,
@@ -262,6 +301,12 @@ async def _generate_podcast(
     """
     audio_clips: list[str] = []
     total = len(debate)
+
+    # Pace the TTS loop — Google AI Studio's free TTS tier is ~15 RPM.
+    # A 16-turn podcast at ~3s/call can tip the rolling window on the
+    # last few lines. 1.5s inter-call spacing keeps us comfortably under.
+    tts_pace_s = 1.5 if settings().tts_provider == "google" else 0.0
+
     for i, m in enumerate(debate):
         persona = next(
             (p for p in personas if p["name"] == m.get("persona_name")),
@@ -273,13 +318,22 @@ async def _generate_podcast(
             "culture": persona.get("culture", ""),
             "name": persona.get("name", ""),
         }
-        audio_url = await generate_seed_speech(
-            text=m.get("content", ""),
-            voice_params=voice_params,
-        )
+        try:
+            audio_url = await generate_seed_speech(
+                text=m.get("content", ""),
+                voice_params=voice_params,
+            )
+        except Exception as exc:
+            # Single-line fault isolation. If the TTS provider hangs or
+            # errors on one debate line, keep the episode going with a
+            # silent beat instead of crashing all 16 turns.
+            log.warning("TTS failure on turn %d (%s) — inserting silent beat", i, exc)
+            audio_url = await _silent_fallback_url(m.get("content", ""))
         audio_clips.append(audio_url)
         pct = 40 + int((i + 1) / total * 50)  # 40 → 90
         await db.update_segment(segment_id, {"progress": pct})
+        if tts_pace_s and i + 1 < total:
+            await asyncio.sleep(tts_pace_s)
 
     final_path = await stitch_podcast(
         audio_clips,
@@ -308,6 +362,7 @@ def generate_segment(
     channel: str,
     personas_override: list[dict] | None = None,
     mode: str = "tabloid",
+    picked_story: dict | None = None,
 ) -> None:
     """Celery entry point — runs the async pipeline to completion."""
-    asyncio.run(_generate(segment_id, channel, personas_override, mode))
+    asyncio.run(_generate(segment_id, channel, personas_override, mode, picked_story))

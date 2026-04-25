@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { TopAppBar } from '../components/TopAppBar'
 import { AmbientOrbs } from '../components/AmbientOrbs'
 import { MSym } from '../components/MSym'
+import { AgentLog } from '../components/AgentLog'
 import { useDebateStream } from '../hooks/useDebateStream'
 import { useSegmentStatus } from '../hooks/useSegmentStatus'
 import { ROLE_UI } from '../config/channelUi'
@@ -129,6 +130,8 @@ export function Debate({
             </p>
           </div>
         )}
+
+        {segment && <AgentLog segment={segment} />}
       </main>
 
       {/* Persistent progress footer */}

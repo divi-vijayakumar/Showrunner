@@ -18,22 +18,49 @@ log = logging.getLogger(__name__)
 
 
 _JSON_BLOCK_RE = re.compile(r"\{[\s\S]*\}")
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*\n?([\s\S]*?)\n?\s*```")
 
 
 def parse_json(text: str) -> dict:
     """Pull the first JSON object out of an LLM response, being forgiving about
-    code fences and chatter before/after."""
+    code fences, prose chatter before/after, and stray newlines.
+
+    Strategy in order:
+    1. If the text contains a ```json``` fenced block, extract its contents.
+    2. Otherwise try direct json.loads on the trimmed text.
+    3. Last resort: regex out the largest {...} balanced span and parse that.
+
+    Logs the first 400 chars of the response when all three fail, so we can
+    see what the model actually returned instead of guessing.
+    """
+    raw = text
     text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+
+    # 1) fenced block — most common Gemini-via-OpenRouter shape
+    fence = _FENCE_RE.search(text)
+    if fence:
+        candidate = fence.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            text = candidate  # fall through to other strategies
+
+    # 2) direct parse
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        match = _JSON_BLOCK_RE.search(text)
-        if not match:
-            raise
-        return json.loads(match.group(0))
+        pass
+
+    # 3) largest {...} span — handles "Here is the JSON: { ... } let me know"
+    match = _JSON_BLOCK_RE.search(text)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    log.error("parse_json: model output didn't yield valid JSON. First 400 chars: %r", raw[:400])
+    raise json.JSONDecodeError("LLM did not return valid JSON", raw, 0)
 
 
 async def call_seed2(

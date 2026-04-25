@@ -39,6 +39,35 @@ export interface ChannelInfo {
   alternatives: Persona[]
 }
 
+export interface StoryBrief {
+  headline?: string
+  source?: string
+  url?: string
+  key_facts?: string[]
+  angle_a?: string
+  angle_b?: string
+  why_now?: string
+  infographic_data?: { key_stat?: string; stat_source?: string; context?: string }
+}
+
+export interface ResearchBriefing {
+  questions?: (string | { question?: string; answer?: string })[]
+  anchor_facts?: ({ claim?: string; source?: string } | string)[]
+  counterpoints?: string[]
+  pull_quotes?: ({ quote?: string; attributed_to?: string } | string)[]
+  fresh_data?: ({ stat?: string; label?: string; source?: string } | string)[]
+  grounded?: boolean
+}
+
+export interface StoryCandidate {
+  title: string
+  source: string
+  link: string
+  summary: string
+  body_preview: string
+  has_body: boolean
+}
+
 export interface Segment {
   channel: ChannelId
   mode?: SegmentMode
@@ -53,6 +82,8 @@ export interface Segment {
   infographics?: unknown[]
   error?: string
   created_at?: number
+  story_brief?: StoryBrief
+  briefing?: ResearchBriefing
 }
 
 export interface DebateMessage {

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from .agents.story_selector import enrich_with_bodies, fetch_headlines
 from .config import CHANNELS, channel_or_raise, settings
 from .db.firestore import LOCAL_AUDIO_DIR, LOCAL_VIDEO_DIR, FirestoreClient
 from .jobs.pipeline import _generate as run_pipeline_async
@@ -43,6 +44,9 @@ app.add_middleware(
 class GenerateRequest(BaseModel):
     personas: list[dict[str, Any]] | None = None  # optional user-swapped panel
     mode: str | None = None  # "tabloid" (default) | "podcast"
+    # Optional: lock the segment to this exact RSS story instead of letting
+    # the agent pick one. The frontend's StoryPicker provides this.
+    story: dict[str, Any] | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -52,6 +56,40 @@ class GenerateResponse(BaseModel):
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "mock": "on" if settings().mock else "off"}
+
+
+@app.get("/api/channels/{channel}/stories")
+async def channel_stories(channel: str, limit: int = 8) -> dict[str, Any]:
+    """Return enriched candidate stories for the StoryPicker UI.
+
+    Pulls RSS, fetches article bodies for the top `limit` headlines, returns
+    them as-is — no LLM selection. The user picks one or hits "Auto-pick" to
+    let the agent decide downstream.
+    """
+    try:
+        channel_or_raise(channel)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    headlines = await fetch_headlines(channel)
+    enriched = await enrich_with_bodies(headlines, limit=limit)
+    # Trim payload — bodies can be large; the picker shows previews not full text.
+    candidates = []
+    for h in enriched[:limit]:
+        if not h.get("title"):
+            continue
+        body = (h.get("body") or h.get("summary") or "").strip()
+        candidates.append(
+            {
+                "title": h["title"],
+                "source": h.get("source", ""),
+                "link": h.get("link", ""),
+                "summary": (h.get("summary") or "").strip()[:300],
+                "body_preview": body[:500],
+                "has_body": bool(h.get("body")),
+            }
+        )
+    return {"channel": channel, "stories": candidates}
 
 
 @app.get("/api/channels")
@@ -89,15 +127,17 @@ async def generate(
     segment_id = await db.create_segment(channel)
     await db.update_segment(segment_id, {"mode": mode})
     personas_override = body.personas if body else None
+    picked_story = body.story if body else None
 
     # Run inline as a FastAPI background task unless TABLOID_USE_CELERY=1.
-    # Keeps local dev and demo-on-laptop zero-ops — no Redis/Celery worker needed.
     use_celery = os.getenv("TABLOID_USE_CELERY", "").lower() in ("1", "true", "yes")
     if use_celery and not settings().mock:
-        celery_generate.delay(segment_id, channel, personas_override, mode)
+        celery_generate.delay(segment_id, channel, personas_override, mode, picked_story)
     else:
         background_tasks.add_task(
-            lambda: asyncio.run(run_pipeline_async(segment_id, channel, personas_override, mode))
+            lambda: asyncio.run(
+                run_pipeline_async(segment_id, channel, personas_override, mode, picked_story)
+            )
         )
 
     return GenerateResponse(segment_id=segment_id)

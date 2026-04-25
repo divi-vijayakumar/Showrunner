@@ -9,6 +9,7 @@ wrote locally. The stitcher already handles both.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -323,7 +324,13 @@ def _extract_gemini_audio(data: dict[str, Any]) -> tuple[str | None, str]:
 
 
 async def _call_gemini_tts(text: str, voice: str, api_key: str, model: str) -> bytes | None:
-    """Return raw PCM bytes for `text`, or None if Gemini returned no audio."""
+    """Return raw PCM bytes for `text`, or None if Gemini returned no audio.
+
+    Handles 429 Too Many Requests by honoring Retry-After (or a polynomial
+    backoff) and retrying up to 3 times. Google AI Studio's free tier on the
+    Gemini TTS model is ~15 RPM, and a 16-turn podcast with ~5s per call can
+    tip the rolling window on the last few lines.
+    """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": text}]}],
@@ -334,12 +341,42 @@ async def _call_gemini_tts(text: str, voice: str, api_key: str, model: str) -> b
             },
         },
     }
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        resp = await client.post(url, json=payload)
-        if resp.status_code >= 400:
-            log.error("Gemini TTS %s: %s", resp.status_code, resp.text[:400])
-        resp.raise_for_status()
-        data = resp.json()
+
+    async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+        data = None
+        for attempt in range(3):
+            try:
+                resp = await client.post(url, json=payload)
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.RemoteProtocolError) as exc:
+                wait = 8.0 * (attempt + 1)
+                log.warning(
+                    "Gemini TTS network error (%s) — sleeping %.1fs (attempt %d/3)",
+                    type(exc).__name__, wait, attempt + 1,
+                )
+                await asyncio.sleep(min(wait, 30.0))
+                continue
+
+            if resp.status_code == 429:
+                hinted = resp.headers.get("retry-after")
+                wait = float(hinted) if (hinted and hinted.replace(".", "", 1).isdigit()) else (8.0 * (attempt + 1))
+                wait = min(wait, 30.0)
+                log.warning("Gemini TTS 429 — sleeping %.1fs (attempt %d/3)", wait, attempt + 1)
+                await asyncio.sleep(wait)
+                continue
+            if resp.status_code >= 500:
+                wait = 4.0 * (attempt + 1)
+                log.warning("Gemini TTS %s server error — retrying after %.1fs", resp.status_code, wait)
+                await asyncio.sleep(wait)
+                continue
+            if resp.status_code >= 400:
+                log.error("Gemini TTS %s: %s", resp.status_code, resp.text[:400])
+                return None  # 4xx is a content problem — retry won't help
+            data = resp.json()
+            break
+
+        if data is None:
+            log.error("Gemini TTS exhausted 3 retries — caller will silent-fallback this line")
+            return None
 
     b64, finish = _extract_gemini_audio(data)
     if not b64:

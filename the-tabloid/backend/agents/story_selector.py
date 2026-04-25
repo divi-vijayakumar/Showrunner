@@ -127,6 +127,57 @@ async def enrich_with_bodies(
     return enriched
 
 
+async def select_specific_story(channel: str, story: dict[str, Any]) -> dict[str, Any]:
+    """User picked a specific story in the UI — skip the "best of many" pass
+    and just produce the structured brief (key_facts, angles, why_now,
+    infographic data) for that single article.
+
+    `story` should carry at least {title, source} and ideally {body, link}.
+    Body is fetched if missing.
+    """
+    title = story.get("title") or story.get("headline") or ""
+    if not title:
+        raise RuntimeError("select_specific_story: story has no title")
+
+    body = story.get("body") or ""
+    if not body and story.get("link"):
+        body = await asyncio.to_thread(_fetch_body, story["link"])
+
+    summary = (story.get("summary") or "")[:500]
+    text_block = body or summary
+    channel_label = channel.replace("_", " ")
+
+    prompt = f"""You are the story producer for a news debate channel focused on {channel_label}.
+A user picked this exact story to debate. Produce the structured brief the
+debate engine needs — do NOT pick a different story, do NOT decline.
+
+HEADLINE: {title}
+SOURCE: {story.get('source','')}
+URL: {story.get('link','')}
+
+ARTICLE TEXT (or summary if body unavailable):
+{text_block}
+
+Return JSON only:
+{{
+  "headline": "{title}",
+  "source": "{story.get('source','')}",
+  "url": "{story.get('link','')}",
+  "key_facts": ["fact 1 grounded in the text", "fact 2", "fact 3"],
+  "angle_a": "first debatable angle",
+  "angle_b": "opposing debatable angle",
+  "why_now": "why this is debatable today specifically",
+  "infographic_data": {{
+    "key_stat": "one compelling statistic if available",
+    "stat_source": "source of that stat",
+    "context": "one sentence of background context"
+  }}
+}}"""
+
+    raw = await call_seed2(prompt, temperature=0.3, max_tokens=900)
+    return parse_json(raw)
+
+
 async def select_story(channel: str, headlines: list[dict[str, str]]) -> dict[str, Any]:
     """Use Seed 2.0 to pick the most debatable story.
 

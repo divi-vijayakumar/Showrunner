@@ -3,6 +3,7 @@ import { TopAppBar } from '../components/TopAppBar'
 import { BottomNav } from '../components/BottomNav'
 import { AmbientOrbs } from '../components/AmbientOrbs'
 import { MSym } from '../components/MSym'
+import { AgentLog } from '../components/AgentLog'
 import { ROLE_UI } from '../config/channelUi'
 import type { ChannelInfo, Segment } from '../types'
 
@@ -333,6 +334,8 @@ export function Player({
               {downloading ? 'Saving…' : (isAudio ? 'Save episode.mp3' : 'Save segment.mp4')}
             </button>
           )}
+
+          <AgentLog segment={segment} />
         </section>
       </main>
 
