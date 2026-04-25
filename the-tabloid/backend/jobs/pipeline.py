@@ -279,6 +279,20 @@ async def _generate(
                 (_visual_lock(featured) + "\n\n" + base_prompt) if featured else base_prompt
             )
 
+            # Audio direction. Seedance keeps inferring dramatic SFX —
+            # whoosh stings on whip-pan scenes, action-movie ambient on
+            # the Clash scene, occasional gun/explosion sounds — which
+            # Fal's audio moderator flags as sensitive and 422s the clip.
+            # Force studio-dialogue-only for every scene.
+            locked_prompt = (
+                locked_prompt
+                + "\n\nAUDIO: Studio dialogue only. The speaker's voice "
+                "over clean room tone. NO music, NO sound effects, NO "
+                "dramatic stings, NO whip-pan whooshes, NO gunshots, "
+                "NO explosions, NO breaking glass, NO action-movie "
+                "ambient. Treat this as a calm news-debate set."
+            )
+
             # If the video model generates its own audio, splice the spoken
             # line straight into the prompt so Seedance knows what to say +
             # drives the lips to match.
