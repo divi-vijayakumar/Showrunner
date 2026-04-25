@@ -147,8 +147,15 @@ async def _generate(
             {"progress": 40, "infographics": script.get("infographics", [])},
         )
 
-        # 4b. Persona reference portraits (one per persona, cached across segments)
-        portraits_by_persona = await ensure_persona_portraits(personas)
+        # 4b. Persona reference portraits (one per persona, cached across
+        # segments). Skipped entirely on text-to-video — no first frame in
+        # play, character identity travels through the prompt instead.
+        is_t2v = "text-to-video" in settings().fal_video_model
+        if is_t2v:
+            log.info("text-to-video mode — skipping portrait generation")
+            portraits_by_persona = {}
+        else:
+            portraits_by_persona = await ensure_persona_portraits(personas)
         await db.update_segment(segment_id, {"progress": 45})
 
         # 5. Seedance clips — sequential for QPS safety; each solo scene uses
@@ -162,9 +169,24 @@ async def _generate(
 
         def _visual_lock(p: dict[str, Any]) -> str:
             """One fixed sentence repeated verbatim in every scene prompt so
-            the video model can't re-imagine the persona's look per scene."""
+            the video model can't re-imagine the persona's look per scene.
+
+            In img2video, this short cue is enough — the first-frame image
+            does the heavy lifting. In text-to-video there's no image to
+            anchor to, so we splice the persona's full visual_description
+            in verbatim every time."""
             voice = p.get("voice") or {}
             g = voice.get("gender", "")
+            if is_t2v:
+                viz = p.get("visual_description") or (
+                    f"a {g} {p['role']} on a news debate show. "
+                    f"Cultural context: {p.get('culture','')}. "
+                    f"Personality: {p.get('style','')}"
+                )
+                return (
+                    f"SAME CHARACTER IN EVERY SCENE — {p['name']}: {viz}. "
+                    f"Maintain identical wardrobe, hair, age, and complexion in this scene."
+                )
             return (
                 f"SAME PERSON IN EVERY SCENE — {p['name']}: a {g} {p['role']}, "
                 f"cultural context {p.get('culture','')}. "
@@ -317,9 +339,14 @@ async def _generate_sample(
         {"status": "generating", "personas": [anchor_persona], "progress": 30},
     )
 
-    # 1) Anchor portrait (Flux Schnell or whatever IMAGE_PROVIDER is set).
-    portraits = await ensure_persona_portraits([anchor_persona])
-    anchor_portrait = portraits.get(anchor_persona["id"])
+    # 1) Anchor portrait — skipped on text-to-video (no first frame anyway).
+    is_t2v = "text-to-video" in settings().fal_video_model
+    if is_t2v:
+        log.info("sample t2v: skipping portrait")
+        anchor_portrait = None
+    else:
+        portraits = await ensure_persona_portraits([anchor_persona])
+        anchor_portrait = portraits.get(anchor_persona["id"])
     await db.update_segment(segment_id, {"progress": 55})
 
     # 2) Single Seedance clip — anchor delivering the open line + the headline

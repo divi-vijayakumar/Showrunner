@@ -121,7 +121,12 @@ async def generate_fal_video(
         payload["resolution"] = "1080p"
     if seed is not None:
         payload["seed"] = int(seed)
-    if first_frame_image and not first_frame_image.startswith("file://"):
+
+    # text-to-video paths take prompt only — never an image, even if the
+    # caller passes one. img2video paths take a public-URL image (file://
+    # never works because Fal fetches it server-side).
+    is_t2v = "text-to-video" in model
+    if not is_t2v and first_frame_image and not first_frame_image.startswith("file://"):
         payload["image_url"] = first_frame_image
 
     data = await _submit_and_wait(model, payload, timeout_s=300.0, poll_every_s=4.0)
