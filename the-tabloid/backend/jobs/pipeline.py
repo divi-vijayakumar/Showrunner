@@ -15,6 +15,7 @@ from typing import Any
 
 from celery import Celery
 
+from ..agents.casting import cast_guests, panel_for
 from ..agents.debate_engine import run_debate
 from ..agents.research import research_story
 from ..agents.script_compiler import compile_script
@@ -24,9 +25,10 @@ from ..agents.story_selector import (
     select_specific_story,
     select_story,
 )
+from ..anchors import as_persona, for_channel as anchor_for_channel, has_anchor
 from ..config import channel_or_raise, settings
 from ..db.firestore import FirestoreClient
-from ..personas import default_panel
+from ..personas import default_panel  # legacy fallback if no anchor + casting fails
 from ..video.infographics import render_infographics
 from ..video.seed_speech import generate_seed_speech
 from ..video.seedance import generate_seedance_clip
@@ -84,8 +86,29 @@ async def _generate(
             },
         )
 
-        # 2. Personas
-        personas = personas_override or default_panel(channel)
+        # 2. Panel = channel anchor + 3 freshly-cast story-relevant guests.
+        # personas_override (set by the user via PersonaSelect) wins over
+        # everything; otherwise we cast on demand. If casting fails for any
+        # reason, fall back to the legacy static personas.py panel so the
+        # pipeline never strands at this step.
+        if personas_override:
+            personas = personas_override
+        elif has_anchor(channel):
+            anchor_persona = as_persona(anchor_for_channel(channel))
+            guests = await cast_guests(
+                story=story, anchor=anchor_persona, channel_id=channel
+            )
+            if len(guests) >= 3:
+                personas = panel_for(anchor_persona=anchor_persona, guests=guests)
+            else:
+                log.warning(
+                    "casting agent returned %d guests (need 3) — falling back to default_panel",
+                    len(guests),
+                )
+                personas = default_panel(channel)
+        else:
+            personas = default_panel(channel)
+
         await db.update_segment(segment_id, {"personas": personas})
 
         # 2b. Research agent → briefing for the debate

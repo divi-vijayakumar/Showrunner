@@ -372,3 +372,23 @@ def for_channel(channel_id: str) -> Anchor:
 
 def has_anchor(channel_id: str) -> bool:
     return channel_id in ANCHORS
+
+
+def as_persona(anchor: Anchor) -> dict[str, Any]:
+    """Convert an Anchor into the persona-dict shape the pipeline + debate
+    engine consume. Lets us treat anchors and casted guests interchangeably
+    downstream without anyone needing to know about the dataclass."""
+    return {
+        "id": anchor.id,
+        "name": anchor.name,
+        "role": "anchor",
+        "lean": anchor.lean,
+        "culture": anchor.culture,
+        "style": anchor.style,
+        "voice": dict(anchor.voice),
+        "visual_description": anchor.visual_description,
+        # Convenience fields the debate / script engines reach for when
+        # writing the open / close lines.
+        "open_line": anchor.open_line,
+        "close_line": anchor.close_line,
+    }
