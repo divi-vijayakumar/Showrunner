@@ -4,8 +4,10 @@ import { StoryPicker } from './pages/StoryPicker'
 import { PersonaSelect } from './pages/PersonaSelect'
 import { Debate } from './pages/Debate'
 import { Player } from './pages/Player'
-import { startSegment } from './api'
+import { History } from './pages/History'
+import { fetchChannels, startSegment } from './api'
 import type {
+  ChannelId,
   ChannelInfo,
   Persona,
   Segment,
@@ -15,6 +17,7 @@ import type {
 
 type View =
   | { name: 'channel_select' }
+  | { name: 'history' }
   | { name: 'story_picker'; channel: ChannelInfo }
   | { name: 'persona_select'; channel: ChannelInfo; story: StoryCandidate | null }
   | { name: 'debate'; channel: ChannelInfo; segmentId: string }
@@ -35,6 +38,26 @@ export default function App() {
           mode={mode}
           onModeChange={setMode}
           onPick={(ch) => setView({ name: 'story_picker', channel: ch })}
+          onShowHistory={() => setView({ name: 'history' })}
+        />
+      )
+
+    case 'history':
+      return (
+        <History
+          onBack={goHome}
+          onOpen={async (row) => {
+            // Look up the full ChannelInfo for the row's channel id, then
+            // jump straight to the Player with the existing segment loaded.
+            try {
+              const channels = await fetchChannels()
+              const ch = channels[row.channel as ChannelId]
+              if (!ch) return
+              setView({ name: 'player', channel: ch, segment: row })
+            } catch {
+              // ignore — user can navigate back if anything misfires
+            }
+          }}
         />
       )
 

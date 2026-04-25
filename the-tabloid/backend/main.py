@@ -143,6 +143,24 @@ async def generate(
     return GenerateResponse(segment_id=segment_id)
 
 
+@app.get("/api/segments")
+async def list_segments(
+    limit: int = 20,
+    channel: str | None = None,
+) -> dict[str, Any]:
+    """Recent episodes for the History page. Newest first."""
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be 1..100")
+    if channel:
+        try:
+            channel_or_raise(channel)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+    db = FirestoreClient()
+    rows = await db.list_segments(limit=limit, channel=channel)
+    return {"segments": rows}
+
+
 @app.get("/api/segment/{segment_id}")
 async def get_segment(segment_id: str) -> dict[str, Any]:
     """Polling fallback if the frontend can't subscribe to Firestore."""

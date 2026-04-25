@@ -48,6 +48,15 @@ export async function fetchChannelStories(
   return http(`/api/channels/${channel}/stories?limit=${limit}`)
 }
 
+export async function fetchSegmentList(
+  limit: number = 20,
+  channel?: ChannelId,
+): Promise<{ segments: (Segment & { id: string })[] }> {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (channel) q.set('channel', channel)
+  return http(`/api/segments?${q}`)
+}
+
 export async function fetchSegment(
   segmentId: string,
 ): Promise<{ segment: Segment; messages: DebateMessage[] }> {

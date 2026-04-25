@@ -33,3 +33,9 @@ dump.rdb
 # Scratch output from video pipeline runs
 backend/tmp/
 /tmp_segments/
+
+# Persistent runtime data — finished mp3/mp4 episodes, persona portrait cache.
+# These are user-generated artifacts; they don't belong in git but should
+# survive across backend restarts on the local machine.
+data/
+the-tabloid/data/

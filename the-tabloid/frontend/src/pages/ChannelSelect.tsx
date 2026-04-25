@@ -11,10 +11,12 @@ export function ChannelSelect({
   mode,
   onModeChange,
   onPick,
+  onShowHistory,
 }: {
   mode: SegmentMode
   onModeChange: (m: SegmentMode) => void
   onPick: (ch: ChannelInfo) => void
+  onShowHistory: () => void
 }) {
   const [channels, setChannels] = useState<Record<ChannelId, ChannelInfo> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -37,11 +39,23 @@ export function ChannelSelect({
       <TopAppBar status="on_air" />
 
       <main className="max-w-xl mx-auto px-6 pt-24 pb-12">
-        <div className="mb-6 space-y-2">
-          <h2 className="font-mono text-on-surface-variant uppercase tracking-[0.2em] text-[11px] font-bold">
-            PICK YOUR CHANNEL
-          </h2>
-          <div className="h-px w-12 bg-gradient-to-r from-fuchsia-500 to-transparent" />
+        <div className="mb-6 flex items-end justify-between gap-3">
+          <div className="space-y-2">
+            <h2 className="font-mono text-on-surface-variant uppercase tracking-[0.2em] text-[11px] font-bold">
+              PICK YOUR CHANNEL
+            </h2>
+            <div className="h-px w-12 bg-gradient-to-r from-fuchsia-500 to-transparent" />
+          </div>
+          <button
+            type="button"
+            onClick={onShowHistory}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition"
+          >
+            <MSym name="history" className="!text-[14px] text-on-surface-variant" />
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-on-surface-variant">
+              History
+            </span>
+          </button>
         </div>
 
         {/* Mode toggle */}

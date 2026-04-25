@@ -76,6 +76,11 @@ class Settings:
     # video URLs when we're serving mp4s from disk instead of Firebase Storage.
     public_base_url: str = _env("PUBLIC_BASE_URL", "http://localhost:8000")
 
+    # Persistent data directory for finished media (audio/video). Survives
+    # restarts so the user can re-listen / re-watch anything ever generated.
+    # Relative paths resolve against the cwd that runs uvicorn.
+    tabloid_data_dir: str = _env("TABLOID_DATA_DIR", "./data")
+
     # Celery
     redis_url: str = _env("REDIS_URL", "redis://localhost:6379/0")
 

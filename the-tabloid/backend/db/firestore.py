@@ -15,11 +15,16 @@ from typing import Any
 from ..config import settings
 
 
-# Where video files live when Firebase Storage isn't configured.
-# The /api/videos/{segment_id}.mp4 route in main.py reads from here.
-LOCAL_VIDEO_DIR = "/tmp/tabloid_public_videos"
-# Podcast episodes (mp3). Served by /api/audio/{segment_id}.mp3.
-LOCAL_AUDIO_DIR = "/tmp/tabloid_public_audio"
+# Where finished media lives when Firebase Storage isn't configured.
+# Defaults to <project>/data/{videos,audio} (gitignored), survives restarts
+# so users can re-watch / re-listen anything ever generated.
+def _data_subdir(name: str) -> str:
+    base = os.path.abspath(os.path.expanduser(settings().tabloid_data_dir))
+    return os.path.join(base, name)
+
+
+LOCAL_VIDEO_DIR = _data_subdir("videos")
+LOCAL_AUDIO_DIR = _data_subdir("audio")
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +154,38 @@ class FirestoreClient:
             )
         else:
             _MOCK.messages.setdefault(segment_id, []).append(payload)
+
+    async def list_segments(
+        self,
+        limit: int = 20,
+        channel: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Recent segments, newest first. Used by the History page."""
+        if self._real:
+            from firebase_admin import firestore as _fs
+            col = self._real.collection("segments")
+            if channel:
+                col = col.where("channel", "==", channel)
+            col = col.order_by("created_at", direction=_fs.Query.DESCENDING).limit(limit)
+
+            def _stream() -> list[dict[str, Any]]:
+                out: list[dict[str, Any]] = []
+                for d in col.stream():
+                    data = d.to_dict() or {}
+                    data["id"] = d.id
+                    out.append(data)
+                return out
+
+            return await asyncio.to_thread(_stream)
+
+        # Mock fallback — sort the in-process dict by created_at desc.
+        items = []
+        for sid, data in _MOCK.segments.items():
+            row = {**data, "id": sid}
+            if not channel or row.get("channel") == channel:
+                items.append(row)
+        items.sort(key=lambda r: r.get("created_at", 0), reverse=True)
+        return items[:limit]
 
     async def list_messages(self, segment_id: str) -> list[dict[str, Any]]:
         if self._real:
