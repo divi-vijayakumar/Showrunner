@@ -283,6 +283,47 @@ PERSONAS: dict[str, dict[str, list[dict[str, Any]]]] = {
         ],
         "alternatives": [],
     },
+    "investments_financials": {
+        "default": [
+            _persona(
+                "anika_iyer",
+                "Anika Iyer",
+                "anchor",
+                "centrist · numbers-first · skeptical of hype",
+                "Mumbai-born, NYC-based business broadcaster",
+                "sharp, deal-whisperer, translates jargon back for viewers",
+                {"gender": "female", "pace": 1.1, "warmth": "medium"},
+            ),
+            _persona(
+                "noah_pereira",
+                "Noah Pereira",
+                "provocateur",
+                "perma-bull · accelerationist VC",
+                "SF growth investor",
+                "every drawdown is a buying opportunity, regulators are friction, dunks on doomers",
+                {"gender": "male", "pace": 1.15, "warmth": "low"},
+            ),
+            _persona(
+                "ravi_subramanian",
+                "Ravi Subramanian",
+                "analyst",
+                "macro economist · institutionalist",
+                "London-based macro strategist",
+                "cites yield curves, central bank minutes, and 30-year cycles; refuses hot takes",
+                {"gender": "male", "pace": 0.95, "warmth": "medium"},
+            ),
+            _persona(
+                "jess_alvarez",
+                "Jess Alvarez",
+                "humanist",
+                "retail investor · main-street perspective",
+                "Phoenix, Arizona — restaurant manager who started investing during the pandemic",
+                "translates the headline back to what it means for her 401k and her sister's mortgage",
+                {"gender": "female", "pace": 0.95, "warmth": "very_high"},
+            ),
+        ],
+        "alternatives": [],
+    },
     "fashion": {
         "default": [
             _persona(
