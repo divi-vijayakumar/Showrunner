@@ -57,18 +57,21 @@ def _portrait_prompt(persona: dict[str, Any]) -> str:
     }.get(role, "")
 
     return (
-        f"Editorial illustrated portrait — STYLIZED, NOT PHOTOREAL — of a "
-        f"fictional character named {name}: a {gender} {role} on a news debate "
-        f"show. This is a CHARACTER DESIGN, drawn / painted in the style of a "
-        f"high-end graphic novel cover or modern animated series key art. "
-        f"NOT a photograph of any real person. "
-        f"Cultural context: {culture}. Personality cue: {style}. "
+        f"3D-ANIMATED CHARACTER PORTRAIT in the style of modern Pixar / "
+        f"DreamWorks / Sony Animation key art. This is a fictional cartoon "
+        f"character — NOT a photograph, NOT photorealistic, NOT a real person. "
+        f"Exaggerated stylized features: slightly oversized eyes, smooth "
+        f"polygonal skin shading, soft cel-shaded look, unmistakably a 3D "
+        f"animated film character. "
+        f"Character: {name}, a fictional {role} for a satirical news debate show. "
+        f"Cultural cues (clothing + setting only, NOT realistic facial features): "
+        f"{culture}. Personality: {style}. "
         f"Wardrobe + lighting: {role_hint}. "
         f"Head-and-shoulders framing, direct eye line, 9:16 vertical, bold "
-        f"saturated cinematic color, painterly brush detail visible, slightly "
-        f"stylized features (not uncanny-valley realism). "
+        f"saturated cinematic color, hand-painted texture detail. "
         f"Background: simple broadcast-set gradient, subtle THE TABLOID glow, "
-        f"shallow depth of field. Absolutely no on-screen text or logos."
+        f"shallow depth of field. No on-screen text or logos. "
+        f"This is animation, not photography."
     )
 
 
