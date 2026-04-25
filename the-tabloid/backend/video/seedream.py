@@ -31,6 +31,15 @@ def _portrait_cache_path(persona_id: str) -> str:
 def _portrait_prompt(persona: dict[str, Any]) -> str:
     """Build a tight, repeatable description — anything vague here is a face
     that will drift between scenes.
+
+    Important: the portrait is intentionally STYLIZED, not photoreal.
+    Reasons:
+      1. Fal's Seedance 2.0 content policy rejects images flagged as
+         "likeness of a real person" — photoreal portraits trigger this.
+      2. Stylized characters drift less between Seedance img2video scenes
+         than photoreal faces.
+      3. The Tabloid's editorial tone fits a bold graphic-novel /
+         editorial-illustration aesthetic anyway.
     """
     name = persona.get("name", "")
     role = persona.get("role", "")
@@ -48,11 +57,18 @@ def _portrait_prompt(persona: dict[str, Any]) -> str:
     }.get(role, "")
 
     return (
-        f"Photorealistic broadcast portrait of {name}, a {gender} {role} on a news "
-        f"debate show. Cultural context: {culture}. Personality cue: {style}. "
-        f"Wardrobe + lighting: {role_hint}. Head-and-shoulders, direct eye line, "
-        "9:16 vertical composition, soft 50mm depth of field, skin texture visible, "
-        "cinematic color grade, absolutely no text or logos in frame."
+        f"Editorial illustrated portrait — STYLIZED, NOT PHOTOREAL — of a "
+        f"fictional character named {name}: a {gender} {role} on a news debate "
+        f"show. This is a CHARACTER DESIGN, drawn / painted in the style of a "
+        f"high-end graphic novel cover or modern animated series key art. "
+        f"NOT a photograph of any real person. "
+        f"Cultural context: {culture}. Personality cue: {style}. "
+        f"Wardrobe + lighting: {role_hint}. "
+        f"Head-and-shoulders framing, direct eye line, 9:16 vertical, bold "
+        f"saturated cinematic color, painterly brush detail visible, slightly "
+        f"stylized features (not uncanny-valley realism). "
+        f"Background: simple broadcast-set gradient, subtle THE TABLOID glow, "
+        f"shallow depth of field. Absolutely no on-screen text or logos."
     )
 
 
