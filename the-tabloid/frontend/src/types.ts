@@ -7,6 +7,7 @@ export type ChannelId =
   | 'celebrity'
   | 'geopolitics'
   | 'fashion'
+  | 'investments_financials'
 
 export type SegmentStatus = 'queued' | 'debate' | 'generating' | 'ready' | 'failed'
 

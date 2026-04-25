@@ -15,6 +15,7 @@ const CHANNEL_LABEL: Record<ChannelId, string> = {
   celebrity: 'Celebrity',
   geopolitics: 'Geopolitics',
   fashion: 'Fashion',
+  investments_financials: 'Investments & Financials',
 }
 
 function timeAgo(secs?: number) {

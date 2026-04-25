@@ -56,10 +56,18 @@ export const CHANNEL_UI: Record<
     fg: 'text-pink-400',
     accentGradient: 'from-pink-500 to-fuchsia-500',
   },
+  investments_financials: {
+    icon: 'trending_up',
+    tint: 'bg-emerald-500/20',
+    border: 'border-emerald-500/30',
+    fg: 'text-emerald-400',
+    accentGradient: 'from-emerald-400 to-teal-500',
+  },
 }
 
 export const CHANNEL_ORDER: ChannelId[] = [
   'india_politics',
+  'investments_financials',
   'technology',
   'ai_updates',
   'celebrity',

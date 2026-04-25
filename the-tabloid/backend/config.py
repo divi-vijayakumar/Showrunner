@@ -217,6 +217,30 @@ CHANNELS: dict[str, dict[str, Any]] = {
         ],
         "visual_style": "cinematic wide shots, government buildings, flags, desaturated serious tone, documentary",
     },
+    "investments_financials": {
+        "label": "Investments & Financials",
+        "icon": "📈",
+        "color": "#10B981",
+        # Spread across US business press (CNBC, MarketWatch, Investopedia,
+        # Forbes), India business press (Mint, Economic Times Markets,
+        # Moneycontrol, Business Standard) — markets debate is more
+        # interesting when the panel is genuinely global.
+        "rss_feeds": [
+            "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+            "https://feeds.marketwatch.com/marketwatch/topstories/",
+            "https://www.investopedia.com/feedbuilder/feed/getfeed/?feedName=rss_articles",
+            "https://www.forbes.com/business/feed/",
+            "https://www.livemint.com/rss/markets",
+            "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+            "https://www.moneycontrol.com/rss/MCtopnews.xml",
+            "https://www.business-standard.com/rss/markets-106.rss",
+        ],
+        "visual_style": (
+            "modern Wall Street / Bombay Stock Exchange aesthetic, ticker-board "
+            "blues and emerald greens, sharp business-broadcast lighting, "
+            "cinematic"
+        ),
+    },
     "fashion": {
         "label": "Fashion",
         "icon": "👗",
