@@ -99,21 +99,41 @@ async def _generate(
         # reason, fall back to the legacy static personas.py panel so the
         # pipeline never strands at this step.
         if personas_override:
+            log.info(
+                "PANEL: using user-supplied personas_override (%d entries) — casting agent skipped. "
+                "Names: %s",
+                len(personas_override),
+                [p.get("name") for p in personas_override],
+            )
             personas = personas_override
         elif has_anchor(channel):
             anchor_persona = as_persona(anchor_for_channel(channel))
+            log.info(
+                "PANEL: calling casting agent for channel=%s anchor=%s",
+                channel, anchor_persona.get("name"),
+            )
             guests = await cast_guests(
                 story=story, anchor=anchor_persona, channel_id=channel
             )
+            log.info(
+                "PANEL: casting returned %d guests: %s",
+                len(guests), [g.get("name") for g in guests],
+            )
             if len(guests) >= 3:
                 personas = panel_for(anchor_persona=anchor_persona, guests=guests)
+                log.info(
+                    "PANEL: using anchor + cast guests: %s",
+                    [p.get("name") for p in personas],
+                )
             else:
                 log.warning(
-                    "casting agent returned %d guests (need 3) — falling back to default_panel",
+                    "PANEL: casting agent returned %d guests (need 3) — "
+                    "falling back to default_panel",
                     len(guests),
                 )
                 personas = default_panel(channel)
         else:
+            log.warning("PANEL: no anchor for channel=%s — using default_panel", channel)
             personas = default_panel(channel)
 
         await db.update_segment(segment_id, {"personas": personas})
@@ -271,14 +291,28 @@ async def _generate(
                     + f"{speaker}: \"{vo['line'].strip()}\""
                 )
 
-            clip_url = await generate_seedance_clip(
-                prompt=locked_prompt,
-                camera_motion=scene.get("camera_motion", "dolly_in"),
-                duration=int(scene.get("duration", 5)),
-                aspect_ratio="9:16",
-                first_frame_image=first_frame,
-                seed=_seed_for(persona_id or anchor_id),
-            )
+            try:
+                clip_url = await generate_seedance_clip(
+                    prompt=locked_prompt,
+                    camera_motion=scene.get("camera_motion", "dolly_in"),
+                    duration=int(scene.get("duration", 5)),
+                    aspect_ratio="9:16",
+                    first_frame_image=first_frame,
+                    seed=_seed_for(persona_id or anchor_id),
+                )
+            except Exception as exc:
+                # Single-scene fault isolation. Most common cause: Fal's content
+                # moderator flags one synthesized-audio clip as sensitive (e.g.
+                # mentions of weapons / military / political figures), 422'ing
+                # only that scene. Don't lose the 6 other paid clips — fall
+                # back to a silent placeholder so stitch still produces a
+                # cohesive episode.
+                log.warning(
+                    "Scene %d (%s) failed: %s — using silent placeholder",
+                    i, scene.get("title", "?"), str(exc)[:300],
+                )
+                from ..video.seedance import _ensure_mock_clip
+                clip_url = _ensure_mock_clip()
             clip_urls.append(clip_url)
             pct = 45 + int((i + 1) / len(scenes) * 30)
             await db.update_segment(segment_id, {"progress": pct})
