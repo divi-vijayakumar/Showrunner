@@ -1,0 +1,19 @@
+[Unit]
+Description=The Tabloid backend (FastAPI/uvicorn)
+After=network.target
+
+[Service]
+Type=exec
+User=tabloid
+Group=tabloid
+WorkingDirectory=/opt/tabloid/the-tabloid
+EnvironmentFile=/opt/tabloid/the-tabloid/backend/.env
+ExecStart=/opt/tabloid/the-tabloid/backend/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --log-level info
+Restart=on-failure
+RestartSec=3
+# Pipeline runs spawn ffmpeg + many concurrent http calls. Generous limits.
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

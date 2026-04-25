@@ -1,0 +1,26 @@
+# /etc/nginx/sites-available/tabloid — symlink into sites-enabled.
+# Replace api.tabloid.example with your real backend domain.
+# After certbot runs, this file gets auto-rewritten with the SSL block.
+
+server {
+    listen 80;
+    server_name api.tabloid.example;
+
+    # Pipeline runs are minutes, not seconds. Bump proxy timeouts.
+    proxy_read_timeout 1800s;
+    proxy_send_timeout 1800s;
+    proxy_connect_timeout 60s;
+
+    # Allow large bodies if anyone ever uploads (currently we don't).
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;  # let SSE / streaming responses flow
+    }
+}
