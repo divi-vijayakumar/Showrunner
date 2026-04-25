@@ -120,7 +120,7 @@ async def generate(
         raise HTTPException(status_code=404, detail=str(exc))
 
     mode = (body.mode if body and body.mode else "tabloid").lower()
-    if mode not in ("tabloid", "podcast"):
+    if mode not in ("tabloid", "podcast", "sample"):
         raise HTTPException(status_code=400, detail=f"Unknown mode: {mode}")
 
     db = FirestoreClient()
