@@ -13,8 +13,9 @@ import type { Segment } from '../types'
 export function AgentLog({ segment }: { segment: Segment }) {
   const brief = segment.story_brief
   const briefing = segment.briefing
+  const script = segment.script
 
-  if (!brief && !briefing) return null
+  if (!brief && !briefing && !script) return null
 
   return (
     <section className="mt-8 space-y-3">
@@ -53,6 +54,54 @@ export function AgentLog({ segment }: { segment: Segment }) {
               value={`${brief.infographic_data.key_stat} — ${brief.infographic_data.stat_source ?? ''}`}
             />
           )}
+        </Collapsible>
+      )}
+
+      {script?.scenes && script.scenes.length > 0 && (
+        <Collapsible
+          icon="movie"
+          title="Broadcast script"
+          subtitle={`${script.scenes.length} scenes · what each shot says`}
+        >
+          <ol className="space-y-3 mt-2">
+            {script.scenes.map((s, i) => (
+              <li
+                key={i}
+                className="border-l-2 border-fuchsia-500/30 pl-3 py-1"
+              >
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                  <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-fuchsia-400">
+                    Scene {s.scene_number ?? i + 1}
+                  </span>
+                  {s.featured_role && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-on-surface-variant">
+                      {s.featured_role}
+                    </span>
+                  )}
+                  {s.camera_motion && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-on-surface-variant">
+                      {String(s.camera_motion).replace(/_/g, ' ')}
+                    </span>
+                  )}
+                  {s.emotional_beat && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-fuchsia-500/15 text-fuchsia-300">
+                      {s.emotional_beat}
+                    </span>
+                  )}
+                </div>
+                {s.title && (
+                  <div className="font-body text-[12px] text-white/80 mb-0.5">
+                    {s.title}
+                  </div>
+                )}
+                {s.vo_line && (
+                  <div className="font-body text-[13px] text-white leading-snug italic">
+                    "{s.vo_line}"
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
         </Collapsible>
       )}
 

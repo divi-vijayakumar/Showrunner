@@ -142,9 +142,35 @@ async def _generate(
 
         # 4. Broadcast script (tabloid/video path only)
         script = await compile_script(channel, story, debate, personas=personas)
+        # Persist the full script so the AgentLog UI can show what each scene
+        # was supposed to say + how it was framed. Strip the long
+        # seedance_prompt fields — they're noise for the reader and bloat
+        # the doc. Keep the human-readable parts.
+        script_for_ui = {
+            "scenes": [
+                {
+                    "scene_number": s.get("scene_number"),
+                    "title": s.get("title"),
+                    "featured_role": s.get("featured_role"),
+                    "featured_persona_id": s.get("featured_persona_id"),
+                    "duration": s.get("duration"),
+                    "camera_motion": s.get("camera_motion"),
+                    "shot": s.get("shot"),
+                    "emotional_beat": s.get("emotional_beat"),
+                    "vo_line": s.get("vo_line"),
+                }
+                for s in script.get("scenes", [])
+            ],
+            "infographics": script.get("infographics", []),
+            "vo_script": script.get("vo_script", []),
+        }
         await db.update_segment(
             segment_id,
-            {"progress": 40, "infographics": script.get("infographics", [])},
+            {
+                "progress": 40,
+                "infographics": script.get("infographics", []),
+                "script": script_for_ui,
+            },
         )
 
         # 4b. Persona reference portraits (one per persona, cached across
@@ -183,9 +209,17 @@ async def _generate(
                     f"Cultural context: {p.get('culture','')}. "
                     f"Personality: {p.get('style','')}"
                 )
+                # Wardrobe is the most reliable cross-scene identifier in t2v
+                # — facial features drift, but a "deep burgundy structured
+                # blazer + gold ear-cuff + bold lip" combo tends to render
+                # consistently and is what viewers recognize. We hammer it.
                 return (
-                    f"SAME CHARACTER IN EVERY SCENE — {p['name']}: {viz}. "
-                    f"Maintain identical wardrobe, hair, age, and complexion in this scene."
+                    f"SAME CHARACTER IN EVERY SCENE — {p['name']}: {viz} "
+                    f"WARDROBE LOCK: keep {p['name']}'s exact outfit, accessories, "
+                    f"hairstyle, and lighting setup identical to how they appear "
+                    f"in any earlier scene of this segment. Same person, same age, "
+                    f"same skin tone, same makeup, same posture archetype. "
+                    f"If unsure, default to the description above verbatim."
                 )
             return (
                 f"SAME PERSON IN EVERY SCENE — {p['name']}: a {g} {p['role']}, "

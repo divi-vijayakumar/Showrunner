@@ -59,6 +59,24 @@ export interface ResearchBriefing {
   grounded?: boolean
 }
 
+export interface ScriptScene {
+  scene_number?: number
+  title?: string
+  featured_role?: AgentRole | 'cross'
+  featured_persona_id?: string | null
+  duration?: number
+  camera_motion?: string
+  shot?: string
+  emotional_beat?: string
+  vo_line?: string
+}
+
+export interface BroadcastScript {
+  scenes?: ScriptScene[]
+  infographics?: unknown[]
+  vo_script?: unknown[]
+}
+
 export interface StoryCandidate {
   title: string
   source: string
@@ -84,6 +102,7 @@ export interface Segment {
   created_at?: number
   story_brief?: StoryBrief
   briefing?: ResearchBriefing
+  script?: BroadcastScript
 }
 
 export interface DebateMessage {

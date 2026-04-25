@@ -81,9 +81,18 @@ export default function App() {
           channel={view.channel}
           onBack={() => setView({ name: 'story_picker', channel: view.channel })}
           onStart={async (panel: Persona[]) => {
+            // If the user didn't actually swap anyone, send personas=null so
+            // the backend's casting agent picks story-relevant guests fresh.
+            // Sending the unchanged default_panel locks us into the static
+            // pool, which produced the Tamil-NA-personas-on-Delhi-stories
+            // mismatch.
+            const baseline = view.channel.default_panel
+            const unchanged =
+              panel.length === baseline.length &&
+              panel.every((p, i) => p.id === baseline[i]?.id)
             const { segment_id } = await startSegment(
               view.channel.id,
-              panel,
+              unchanged ? undefined : panel,
               mode,
               view.story,
             )

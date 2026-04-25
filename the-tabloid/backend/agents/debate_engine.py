@@ -152,8 +152,12 @@ async def run_debate(
 
         system_prompt = build_system_prompt(persona, channel, story, personas, briefing=briefing)
 
+        # Full transcript context — earlier we capped at the last 4 turns,
+        # which meant by turn 7 the anchor's framing from turn 0 was gone
+        # and panelists pivoted into canned worldviews instead of building
+        # the argument. 16 turns × ~50 words is still trivial for any LLM.
         history = "\n".join(
-            f"{m['persona_name']}: {m['content']}" for m in messages[-4:]
+            f"{m['persona_name']}: {m['content']}" for m in messages
         )
         user_prompt = f"""Previous exchange:
 {history if history else '[You are opening the debate]'}
