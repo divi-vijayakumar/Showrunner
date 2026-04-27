@@ -6,6 +6,18 @@ import { CHANNEL_UI } from '../config/channelUi'
 import { fetchChannelStories } from '../api'
 import type { ChannelInfo, StoryCandidate } from '../types'
 
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/\/$/, '')
+
+// Pre-rendered demo segment — direct-mode pipeline output for the Skyroot
+// Vikram-1 story. Links into the backend's /direct/{seg_id} player which
+// already has the per-scene strip + final stitched video.
+const DEMO_DIRECT: Record<string, { segmentId: string; label: string }> = {
+  india_politics: {
+    segmentId: 'seg_03a618cd9f',
+    label: 'Skyroot Vikram-1 demo',
+  },
+}
+
 export function StoryPicker({
   channel,
   onBack,
@@ -51,6 +63,30 @@ export function StoryPicker({
             or let the agent decide.
           </p>
         </div>
+
+        {DEMO_DIRECT[channel.id] && (
+          <a
+            href={`${API_BASE}/direct/${DEMO_DIRECT[channel.id]!.segmentId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-3 w-full glass-card rounded-2xl p-4 flex items-center justify-between border border-emerald-500/30 hover:border-emerald-500/60 transition-colors active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                <MSym name="play_circle" filled className="!text-[18px] text-emerald-300" />
+              </div>
+              <div className="text-left">
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-emerald-300">
+                  Pre-rendered demo
+                </div>
+                <div className="font-body text-sm text-white/90">
+                  {DEMO_DIRECT[channel.id]!.label} — scene-by-scene + final cut
+                </div>
+              </div>
+            </div>
+            <MSym name="open_in_new" className="text-emerald-300/60" />
+          </a>
+        )}
 
         <button
           type="button"

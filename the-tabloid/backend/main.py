@@ -336,6 +336,75 @@ async def get_segment_clips(segment_id: str) -> dict[str, Any]:
     }
 
 
+@app.post("/api/segments/{segment_id}/stitch")
+async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
+    """ffmpeg-concat all clips of a direct-mode segment into a single mp4
+    with intro + outro music. Returns a dict with `video_url` (browser-
+    playable) + duration / size / mode metadata.
+
+    The intro/outro audio files are pulled from `data/audio/intro.mp3`
+    and `outro.mp3` if present. The avatar PNG (from the script's
+    `avatar_path`) is used as the visual under those stings, so the
+    cold-open and sign-off feel on-brand."""
+    from .video.stitch_direct import stitch_direct_segment
+    from .jobs.pipeline import SEGMENTS_DIR, load_segment_manifest
+
+    if not segment_id or any(c in segment_id for c in "/\\."):
+        raise HTTPException(status_code=400, detail="bad segment id")
+
+    manifest = load_segment_manifest(segment_id)
+    if not manifest:
+        raise HTTPException(status_code=404, detail="segment not found")
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    # Avatar: prefer the script's local avatar_path, fall back to the
+    # uploaded Fal URL we cached. We use the LOCAL file for ffmpeg.
+    avatar_path: str | None = None
+    script_name = (manifest.get("story") or {}).get("script_name") or "skyroot"
+    try:
+        script_data = _load_direct_script(script_name)
+        ap = script_data.get("avatar_path")
+        if ap:
+            full = ap if os.path.isabs(ap) else os.path.join(repo_root, ap)
+            if os.path.exists(full):
+                avatar_path = full
+    except Exception:
+        pass
+    if avatar_path is None:
+        # Default to the Skyroot avatar.
+        candidate = os.path.join(repo_root, "scripts", "The_tabloid_set.png")
+        if os.path.exists(candidate):
+            avatar_path = candidate
+
+    # Optional intro/outro music tracks.
+    intro_audio = os.path.join(repo_root, "data", "audio", "intro.mp3")
+    outro_audio = os.path.join(repo_root, "data", "audio", "outro.mp3")
+    intro_audio = intro_audio if os.path.exists(intro_audio) else None
+    outro_audio = outro_audio if os.path.exists(outro_audio) else None
+
+    try:
+        result = await asyncio.to_thread(
+            stitch_direct_segment,
+            segment_id,
+            segments_dir=SEGMENTS_DIR,
+            output_dir=LOCAL_VIDEO_DIR,
+            intro_image_path=avatar_path,
+            outro_image_path=avatar_path,
+            intro_audio_path=intro_audio,
+            outro_audio_path=outro_audio,
+        )
+    except Exception as exc:
+        log.exception("stitch failed for %s", segment_id)
+        raise HTTPException(status_code=500, detail=f"stitch failed: {exc}")
+
+    base = settings().public_base_url.rstrip("/")
+    return {
+        **result,
+        "video_url": f"{base}/api/videos/{segment_id}_full.mp4",
+    }
+
+
 @app.get("/api/segments/{segment_id}/scene/{scene_number}.mp4")
 async def get_segment_scene(segment_id: str, scene_number: str):
     """Serve a locally-cached scene mp4 for a direct-mode segment. Stable
@@ -366,7 +435,13 @@ _DIRECT_PLAYER_HTML = """<!DOCTYPE html>
   header .meta { font-size: 13px; color: #8a8a96; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px 24px; height: calc(100vh - 60px); }
   .stage { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .stage video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; outline: none; }
+  .stage video { width: 100%; max-height: 50vh; background: #000; border-radius: 8px; outline: none; }
+  .stage .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a96; margin: 8px 0 -2px 0; }
+  .stage .final-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .stage .stitch-btn { background: #fa3e3e; color: #fff; border: 0; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .stage .stitch-btn:disabled { background: #2a2a36; color: #666; cursor: not-allowed; }
+  .stage .stitch-btn:hover:not(:disabled) { background: #ff5252; }
+  .stage .stitch-status { font-size: 12px; color: #8a8a96; }
   .stage .now { font-size: 14px; color: #c5c5cf; line-height: 1.4; }
   .stage .now .num { color: #fa3e3e; font-weight: 700; margin-right: 8px; }
   .stage .now .speaker { color: #ffd24a; font-weight: 600; margin-right: 8px; }
@@ -405,8 +480,16 @@ _DIRECT_PLAYER_HTML = """<!DOCTYPE html>
 </header>
 <main>
   <div class="stage">
+    <div class="section-label">Scene preview</div>
     <video id="player" controls playsinline></video>
     <div class="now" id="now">—</div>
+
+    <div class="section-label">Final episode (with intro + outro music)</div>
+    <video id="final-player" controls playsinline style="display:none"></video>
+    <div class="final-row">
+      <button id="stitch-btn" class="stitch-btn" disabled>Build final episode</button>
+      <span class="stitch-status" id="stitch-status">Waiting for all scenes…</span>
+    </div>
   </div>
   <div class="strip" id="strip">
     <h2>24 scenes</h2>
@@ -467,6 +550,60 @@ document.getElementById('prev').addEventListener('click', () => { if (cur > 0) {
 document.getElementById('next').addEventListener('click', () => { if (cur < clips.length - 1) { cur++; load(); }});
 autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.textContent = `Auto-play: ${auto ? 'ON' : 'OFF'}`; });
 
+// Final-episode stitch UI state.
+const stitchBtn = document.getElementById('stitch-btn');
+const stitchStatus = document.getElementById('stitch-status');
+const finalPlayer = document.getElementById('final-player');
+let stitchInFlight = false;
+let stitchedUrl = null;
+
+function updateStitchButton(stats, clipsArr) {
+  if (stitchedUrl) return; // already stitched, leave UI alone
+  const allDone = clipsArr.length > 0 && clipsArr.every(c =>
+    c.status === 'ready' || c.status === 'failed' || c.status === 'skipped'
+  );
+  const readyCount = clipsArr.filter(c => c.status === 'ready').length;
+  if (stitchInFlight) {
+    stitchBtn.disabled = true;
+    stitchStatus.textContent = 'Stitching with intro + outro music…';
+  } else if (allDone && readyCount > 0) {
+    stitchBtn.disabled = false;
+    stitchStatus.textContent = `Ready to stitch ${readyCount} scenes (+ intro & outro)`;
+  } else {
+    stitchBtn.disabled = true;
+    stitchStatus.textContent = `Waiting for scenes (${readyCount}/${clipsArr.length} ready)`;
+  }
+}
+
+stitchBtn.addEventListener('click', async () => {
+  if (stitchInFlight || stitchedUrl) return;
+  stitchInFlight = true;
+  stitchBtn.disabled = true;
+  stitchStatus.textContent = 'Stitching with intro + outro music…';
+  try {
+    const r = await fetch(`/api/segments/${SEG_ID}/stitch`, { method: 'POST' });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const d = await r.json();
+    stitchedUrl = d.video_url;
+    finalPlayer.src = stitchedUrl;
+    finalPlayer.style.display = 'block';
+    finalPlayer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const dur = (d.duration_seconds || 0).toFixed(1);
+    const sz = (d.size_mb || 0).toFixed(1);
+    stitchStatus.innerHTML =
+      `<a href="${stitchedUrl}" download style="color:#6ee7a3">⬇ download</a> · ` +
+      `${dur}s, ${sz} MB · ${d.mode}`;
+    stitchBtn.style.display = 'none';
+  } catch (err) {
+    stitchInFlight = false;
+    stitchBtn.disabled = false;
+    stitchStatus.textContent = `Stitch failed: ${err.message || err}`;
+  }
+});
+
 async function poll() {
   try {
     const r = await fetch(`/api/segment/${SEG_ID}/clips`);
@@ -482,7 +619,8 @@ async function poll() {
       : `${clips.filter(c => c.status === 'ready').length}/${clips.length} ready · ${costStr} spent`;
     if (!player.src && clips[cur]?.video_url) load();
     renderTiles();
-    if (d.status !== 'ready' && d.status !== 'failed') {
+    updateStitchButton(stats, clips);
+    if (d.status !== 'ready' && d.status !== 'failed' && !stitchedUrl) {
       setTimeout(poll, 4000);
     }
   } catch (e) {
