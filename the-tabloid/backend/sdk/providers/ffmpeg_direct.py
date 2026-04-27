@@ -38,10 +38,12 @@ def stitch_direct_segment(
     *,
     segments_dir: str,
     output_dir: str,
+    repo_root: str,
     outro_audio_path: str | None = None,
     outro_overlap_seconds: float = 2.0,
     video_blend_duration: float = 0.1,
     music_volume: float = 0.55,
+    enable_graphics: bool = True,
 ) -> dict[str, Any]:
     """Two-pass episode assembly for a direct-mode segment.
 
@@ -112,6 +114,9 @@ def stitch_direct_segment(
         outro_overlap_seconds=outro_overlap_seconds,
         video_blend_duration=video_blend_duration,
         music_volume=music_volume,
+        manifest=manifest,
+        repo_root=repo_root,
+        enable_graphics=enable_graphics,
     )
 
     return {

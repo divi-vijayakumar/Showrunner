@@ -476,7 +476,9 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
             segment_id,
             segments_dir=SEGMENTS_DIR,
             output_dir=LOCAL_VIDEO_DIR,
+            repo_root=repo_root,
             outro_audio_path=outro_audio,
+            enable_graphics=True,
         )
     except Exception as exc:
         log.exception("stitch failed for %s", segment_id)
