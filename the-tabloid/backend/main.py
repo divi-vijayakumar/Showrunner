@@ -447,14 +447,15 @@ async def get_segment_clips(segment_id: str) -> dict[str, Any]:
 
 @app.post("/api/segments/{segment_id}/stitch")
 async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
-    """ffmpeg-concat all clips of a direct-mode segment into a single mp4
-    with intro + outro music. Returns a dict with `video_url` (browser-
-    playable) + duration / size / mode metadata.
+    """Two-pass episode assembly:
+      1. xfade + acrossfade across all scene clips → smooth cuts, no
+         audio clicks. Re-encodes video.
+      2. Outro music over the LAST 2 seconds of the dialogue track with
+         `-c:v copy` → lip sync intact.
 
-    The intro/outro audio files are pulled from `data/audio/intro.mp3`
-    and `outro.mp3` if present. The avatar PNG (from the script's
-    `avatar_path`) is used as the visual under those stings, so the
-    cold-open and sign-off feel on-brand."""
+    The outro mp3 at `data/audio/outro.mp3` is used if present; missing
+    is fine, the blend output ships as the final episode. There's no
+    intro music — see editor.py for the lip-sync reason."""
     from .sdk.providers.ffmpeg_direct import stitch_direct_segment
     from .templates.panel_debate.pipelines import SEGMENTS_DIR, load_segment_manifest
 
@@ -466,30 +467,7 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="segment not found")
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-    # Avatar: prefer the script's local avatar_path, fall back to the
-    # uploaded Fal URL we cached. We use the LOCAL file for ffmpeg.
-    avatar_path: str | None = None
-    script_name = (manifest.get("story") or {}).get("script_name") or "skyroot"
-    try:
-        script_data = _load_direct_script(script_name)
-        ap = script_data.get("avatar_path")
-        if ap:
-            full = ap if os.path.isabs(ap) else os.path.join(repo_root, ap)
-            if os.path.exists(full):
-                avatar_path = full
-    except Exception:
-        pass
-    if avatar_path is None:
-        # Default to the Skyroot avatar.
-        candidate = os.path.join(repo_root, "scripts", "The_tabloid_set.png")
-        if os.path.exists(candidate):
-            avatar_path = candidate
-
-    # Optional intro/outro music tracks.
-    intro_audio = os.path.join(repo_root, "data", "audio", "intro.mp3")
     outro_audio = os.path.join(repo_root, "data", "audio", "outro.mp3")
-    intro_audio = intro_audio if os.path.exists(intro_audio) else None
     outro_audio = outro_audio if os.path.exists(outro_audio) else None
 
     try:
@@ -498,9 +476,6 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
             segment_id,
             segments_dir=SEGMENTS_DIR,
             output_dir=LOCAL_VIDEO_DIR,
-            intro_image_path=avatar_path,
-            outro_image_path=avatar_path,
-            intro_audio_path=intro_audio,
             outro_audio_path=outro_audio,
         )
     except Exception as exc:
