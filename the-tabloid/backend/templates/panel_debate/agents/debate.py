@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import Any
 
-from ..sdk.providers.llm import call_seed2
+from ....sdk.providers.llm import call_seed2
 
 log = logging.getLogger(__name__)
 

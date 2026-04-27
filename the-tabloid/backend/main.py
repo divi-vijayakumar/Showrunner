@@ -20,7 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
-from .agents.story_selector import enrich_with_bodies, fetch_headlines
+from .templates.panel_debate.agents.story_selector import (
+    enrich_with_bodies,
+    fetch_headlines,
+)
 from .config import CHANNELS, channel_or_raise, settings
 from .db.firestore import LOCAL_AUDIO_DIR, LOCAL_IMAGE_DIR, LOCAL_VIDEO_DIR, FirestoreClient
 from .jobs.pipeline import _generate as run_pipeline_async

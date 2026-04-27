@@ -22,8 +22,8 @@ from typing import Any
 
 import httpx
 
-from ..config import settings
-from ..sdk.providers.llm import parse_json
+from ....config import settings
+from ....sdk.providers.llm import parse_json
 
 log = logging.getLogger(__name__)
 

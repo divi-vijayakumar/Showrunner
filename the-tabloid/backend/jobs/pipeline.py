@@ -17,11 +17,11 @@ from typing import Any
 
 from celery import Celery
 
-from ..agents.casting import cast_guests, panel_for
-from ..agents.debate_engine import run_debate
-from ..agents.research import research_story
-from ..agents.script_compiler import compile_script
-from ..agents.story_selector import (
+from ..templates.panel_debate.agents.casting import cast_guests, panel_for
+from ..templates.panel_debate.agents.debate import run_debate
+from ..templates.panel_debate.agents.research import research_story
+from ..templates.panel_debate.agents.script import compile_script
+from ..templates.panel_debate.agents.story_selector import (
     enrich_with_bodies,
     fetch_headlines,
     select_specific_story,
