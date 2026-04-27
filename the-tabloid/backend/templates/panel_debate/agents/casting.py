@@ -99,10 +99,29 @@ The HOST is already chosen — do NOT cast someone too similar:
 
 Cast THREE guests for the panel. Roles are fixed; each must be filled with
 a real-feeling person whose region, profession, lean, and lived experience
-match THIS story's stakeholders. A Delhi/Punjab story → Delhi/Punjab voices.
-A Tamil Nadu story → Tamil Nadu voices. An AI lab story → people inside that
-world. Avoid generic "international observer" types unless the story is genuinely
-global.
+match THIS story's stakeholders. Region-match the story, NOT the host:
+
+  - A Delhi or Punjab story → Delhi/Punjab voices.
+  - A Tamil Nadu story → Tamil Nadu voices.
+  - A Berlin or Brussels EU policy story → German / EU-policy voices.
+  - A Lagos or Nairobi tech story → Nigerian / Kenyan voices.
+  - A Tokyo or Seoul finance story → Japanese / Korean voices.
+  - A Bay Area or NYC tech story → US tech voices.
+  - An AI lab story → people inside that world (lab researchers,
+    open-source maintainers, ML safety folk).
+  - A Hollywood / Bollywood / K-pop story → industry-native voices for
+    the country of origin.
+
+Do NOT default to Indian guests when the story is not India-rooted.
+Do NOT default to American guests when the story is not US-rooted.
+Pick the cultural register the actual stakeholders inhabit. Avoid
+generic "international observer" types unless the story is genuinely
+multi-region.
+
+Names, ethnicity in visual_description, and cultural references in
+`culture`/`style` should all match the region. The host's culture is
+listed above purely so you don't clone them — it does NOT constrain
+the guests' region.
 
 Cover all three roles, no duplicates:
   - provocateur: takes the most controversial defensible position; sharp,
@@ -112,31 +131,24 @@ Cover all three roles, no duplicates:
   - humanist: brings it back to one real person this story affects;
     emotional but specific, never abstract.
 
-Return JSON only — no prose, no code fences:
+Return JSON only — no prose, no code fences. Fill in EVERY field for
+every guest. The shape is:
 {{
   "guests": [
     {{
-      "id": "rohit_arora",
-      "name": "Rohit Arora",
+      "id": "first_last_lowercase",
+      "name": "First Last",
       "role": "provocateur",
-      "lean": "AAP-skeptic, urban middle-class Delhi",
-      "culture": "Delhi NCR, white-collar IT, watches everything from the sidelines",
-      "style": "cynical about defection-era politics, drops legal references, sharp dry humor",
-      "voice": {{"gender": "male", "pace": 1.1, "warmth": "low"}},
-      "visual_description": "South Asian man, mid-40s, slim build, thin wire-frame glasses, blue oxford shirt collar visible, salt-and-pepper close-cropped hair, modern Delhi apartment background out of focus, single soft key light from camera left, intelligent direct gaze, slight smirk in resting frame"
+      "lean": "one-line political/professional posture",
+      "culture": "region + class + occupational context",
+      "style": "how they argue: sharp / measured / anecdotal / data-first / etc.",
+      "voice": {{"gender": "male" | "female" | "nonbinary",
+                 "pace": 0.85 to 1.20,
+                 "warmth": "low" | "medium" | "high"}},
+      "visual_description": "ethnicity + age range + hair + glasses + clothing color and texture + background hint + lighting direction + expression"
     }},
-    {{
-      "id": "...",
-      "name": "...",
-      "role": "analyst",
-      ...
-    }},
-    {{
-      "id": "...",
-      "name": "...",
-      "role": "humanist",
-      ...
-    }}
+    {{ "id": "...", "role": "analyst", ... }},
+    {{ "id": "...", "role": "humanist", ... }}
   ]
 }}
 
