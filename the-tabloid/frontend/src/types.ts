@@ -85,6 +85,12 @@ export interface StoryCandidate {
   summary: string
   body_preview: string
   has_body: boolean
+  pinned?: boolean
+  // When set, the StoryPicker routes clicks through the direct-mode
+  // pipeline (`/api/generate-direct/{direct_script}`) instead of the
+  // regular RSS+casting+debate+script+video path. The value is the
+  // script name under `data/scripts/{name}.json`.
+  direct_script?: string | null
 }
 
 export interface Segment {

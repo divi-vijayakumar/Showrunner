@@ -3,20 +3,8 @@ import { TopAppBar } from '../components/TopAppBar'
 import { AmbientOrbs } from '../components/AmbientOrbs'
 import { MSym } from '../components/MSym'
 import { CHANNEL_UI } from '../config/channelUi'
-import { fetchChannelStories } from '../api'
+import { apiBase, fetchChannelStories, startDirect } from '../api'
 import type { ChannelInfo, StoryCandidate } from '../types'
-
-const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000').replace(/\/$/, '')
-
-// Pre-rendered demo segment — direct-mode pipeline output for the Skyroot
-// Vikram-1 story. Links into the backend's /direct/{seg_id} player which
-// already has the per-scene strip + final stitched video.
-const DEMO_DIRECT: Record<string, { segmentId: string; label: string }> = {
-  india_politics: {
-    segmentId: 'seg_03a618cd9f',
-    label: 'Skyroot Vikram-1 demo',
-  },
-}
 
 export function StoryPicker({
   channel,
@@ -31,6 +19,7 @@ export function StoryPicker({
 }) {
   const [stories, setStories] = useState<StoryCandidate[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [firing, setFiring] = useState(false)
   const ui = CHANNEL_UI[channel.id]
 
   useEffect(() => {
@@ -44,6 +33,34 @@ export function StoryPicker({
       cancelled = true
     }
   }, [channel.id])
+
+  // Pinned stories with `direct_script` route through /api/generate-direct
+  // instead of the regular RSS+casting+debate+video flow. They use the
+  // hand-authored script JSON for story/cast/scenes/director output and
+  // share execution+editing+rendering with the production pipeline.
+  const handleStoryClick = async (s: StoryCandidate) => {
+    if (!s.direct_script) {
+      onPick(s)
+      return
+    }
+    if (firing) return
+    const ok = window.confirm(
+      `Fire fresh "${s.direct_script}" run?\n\n` +
+        `This burns ~$16 of Seedance credit and takes ~10 min.\n` +
+        `The /direct/{seg_id} player opens in this tab and shows ` +
+        `each scene as it lands, then offers a "Build final episode" ` +
+        `button once they're all ready.`,
+    )
+    if (!ok) return
+    try {
+      setFiring(true)
+      const { segment_id } = await startDirect(s.direct_script)
+      window.location.href = `${apiBase}/direct/${segment_id}`
+    } catch (e) {
+      setFiring(false)
+      window.alert(`Direct-mode start failed: ${e}`)
+    }
+  }
 
   return (
     <div className="min-h-screen relative pb-32">
@@ -63,30 +80,6 @@ export function StoryPicker({
             or let the agent decide.
           </p>
         </div>
-
-        {DEMO_DIRECT[channel.id] && (
-          <a
-            href={`${API_BASE}/direct/${DEMO_DIRECT[channel.id]!.segmentId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mb-3 w-full glass-card rounded-2xl p-4 flex items-center justify-between border border-emerald-500/30 hover:border-emerald-500/60 transition-colors active:scale-[0.99]"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-                <MSym name="play_circle" filled className="!text-[18px] text-emerald-300" />
-              </div>
-              <div className="text-left">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-emerald-300">
-                  Pre-rendered demo
-                </div>
-                <div className="font-body text-sm text-white/90">
-                  {DEMO_DIRECT[channel.id]!.label} — scene-by-scene + final cut
-                </div>
-              </div>
-            </div>
-            <MSym name="open_in_new" className="text-emerald-300/60" />
-          </a>
-        )}
 
         <button
           type="button"
@@ -133,34 +126,56 @@ export function StoryPicker({
         )}
 
         <div className="space-y-3">
-          {stories?.map((s) => (
-            <button
-              key={s.link || s.title}
-              type="button"
-              onClick={() => onPick(s)}
-              className="glass-card w-full text-left p-5 rounded-2xl group active:scale-[0.99] transition-all duration-200 hover:border-white/30"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-on-surface-variant/70">
-                  {s.source}
-                </span>
-                {s.has_body && (
-                  <span className="font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Full text
+          {stories?.map((s) => {
+            const isDirect = !!s.direct_script
+            const disabled = firing
+            return (
+              <button
+                key={s.link || s.title}
+                type="button"
+                disabled={disabled}
+                onClick={() => handleStoryClick(s)}
+                className={`glass-card w-full text-left p-5 rounded-2xl group active:scale-[0.99] transition-all duration-200 hover:border-white/30 ${
+                  isDirect ? 'border border-emerald-500/40 hover:border-emerald-500/60' : ''
+                } ${disabled ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-on-surface-variant/70">
+                    {s.source}
                   </span>
+                  {s.pinned && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Pinned
+                    </span>
+                  )}
+                  {isDirect && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Direct mode
+                    </span>
+                  )}
+                  {s.has_body && !isDirect && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Full text
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-heading text-base text-white leading-snug mb-1.5 font-semibold">
+                  {s.title}
+                </h3>
+                {s.body_preview && (
+                  <p className="font-body text-[13px] text-on-surface-variant/80 leading-relaxed line-clamp-2">
+                    {s.body_preview.slice(0, 220)}
+                    {s.body_preview.length > 220 ? '…' : ''}
+                  </p>
                 )}
-              </div>
-              <h3 className="font-heading text-base text-white leading-snug mb-1.5 font-semibold">
-                {s.title}
-              </h3>
-              {s.body_preview && (
-                <p className="font-body text-[13px] text-on-surface-variant/80 leading-relaxed line-clamp-2">
-                  {s.body_preview.slice(0, 220)}
-                  {s.body_preview.length > 220 ? '…' : ''}
-                </p>
-              )}
-            </button>
-          ))}
+                {isDirect && (
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-emerald-300/80 mt-2">
+                    Hand-authored script · ~$16 · ~10 min · scene-by-scene player
+                  </p>
+                )}
+              </button>
+            )
+          })}
         </div>
       </main>
     </div>

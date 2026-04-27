@@ -62,3 +62,14 @@ export async function fetchSegment(
 ): Promise<{ segment: Segment; messages: DebateMessage[] }> {
   return http(`/api/segment/${segmentId}`)
 }
+
+export async function startDirect(
+  scriptName: string,
+): Promise<{ segment_id: string }> {
+  return http(`/api/generate-direct/${scriptName}`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export const apiBase = API_BASE

@@ -115,6 +115,10 @@ async def channel_stories(channel: str, limit: int = 8) -> dict[str, Any]:
     # the StoryPicker. They carry "pinned": true so the UI can badge them.
     for h in _load_pinned_stories(channel):
         body = (h.get("body") or h.get("summary") or "").strip()
+        # `direct_script` (optional) names a script JSON in data/scripts/.
+        # When set, the StoryPicker routes click → /api/generate-direct/{name}
+        # instead of the regular RSS+debate+video flow. Lets us pin
+        # hand-authored episodes (Skyroot, etc.) inline with live RSS.
         candidates.append(
             {
                 "title": h["title"],
@@ -124,6 +128,7 @@ async def channel_stories(channel: str, limit: int = 8) -> dict[str, Any]:
                 "body_preview": body[:500],
                 "has_body": bool(h.get("body")),
                 "pinned": True,
+                "direct_script": h.get("direct_script") or None,
             }
         )
 
