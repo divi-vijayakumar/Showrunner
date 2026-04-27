@@ -25,6 +25,7 @@ def _data_subdir(name: str) -> str:
 
 LOCAL_VIDEO_DIR = _data_subdir("videos")
 LOCAL_AUDIO_DIR = _data_subdir("audio")
+LOCAL_IMAGE_DIR = _data_subdir("images")
 
 log = logging.getLogger(__name__)
 
@@ -249,3 +250,32 @@ class FirestoreClient:
         await asyncio.to_thread(shutil.copyfile, local_path, dest)
         base = settings().public_base_url.rstrip("/")
         return f"{base}/api/audio/{segment_id}.mp3"
+
+    async def upload_image(
+        self, local_path: str, segment_id: str, suffix: str
+    ) -> str:
+        """Publish an extracted PNG (last-frame chain image) and return a
+        URL Seedance can fetch server-side. Same three-mode fallback.
+
+        `suffix` discriminates frames within a segment (e.g. "scene2_last").
+        On the local-serve path, the URL only resolves if PUBLIC_BASE_URL is
+        actually reachable from BytePlus — in pure-localhost dev runs the
+        chain will silently fail at fetch time and the pipeline falls back
+        to the per-panelist MCU derivative.
+        """
+        if self._bucket:
+            blob_name = f"segments/{segment_id}/{suffix}.png"
+            blob = self._bucket.blob(blob_name)
+
+            def _upload() -> str:
+                blob.upload_from_filename(local_path, content_type="image/png")
+                blob.make_public()
+                return blob.public_url
+
+            return await asyncio.to_thread(_upload)
+
+        os.makedirs(LOCAL_IMAGE_DIR, exist_ok=True)
+        dest = os.path.join(LOCAL_IMAGE_DIR, f"{segment_id}_{suffix}.png")
+        await asyncio.to_thread(shutil.copyfile, local_path, dest)
+        base = settings().public_base_url.rstrip("/")
+        return f"{base}/api/images/{segment_id}_{suffix}.png"

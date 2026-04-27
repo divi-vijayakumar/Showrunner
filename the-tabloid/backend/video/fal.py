@@ -84,18 +84,22 @@ async def generate_fal_video(
     first_frame_image: str | None = None,
     seed: int | None = None,
     aspect_ratio: str = "9:16",
+    model_override: str | None = None,
+    end_image_url: str | None = None,
 ) -> str:
     """Generate one clip via the configured Fal video model. Returns a public
     video URL.
 
-    Payload is tuned for Fal Seedance 2.0 Pro image-to-video (the default).
-    If the user swaps `FAL_VIDEO_MODEL` to a different model (e.g. Hailuo,
-    Kling) some fields may be ignored or rejected — adjust there.
+    Pass `model_override` to switch t2v↔i2v per call.
+
+    Pass `end_image_url` (alongside `first_frame_image`) for endpoint-locked
+    i2v: Seedance interpolates motion between the two locked frames. Used by
+    the alternating-anchor pattern where even scenes lock back to the avatar.
 
     Passing `seed` holds randomness stable between calls, so if you pass the
     same seed for every scene featuring the same persona, faces drift less.
     """
-    model = settings().fal_video_model
+    model = model_override or settings().fal_video_model
 
     payload: dict[str, Any] = {
         "prompt": prompt,
@@ -128,6 +132,11 @@ async def generate_fal_video(
     is_t2v = "text-to-video" in model
     if not is_t2v and first_frame_image and not first_frame_image.startswith("file://"):
         payload["image_url"] = first_frame_image
+    # Endpoint-locked i2v: when end_image_url is set, Seedance interpolates
+    # between image_url (start) and end_image_url (end). Used by the
+    # alternating-anchor pattern where even scenes lock back to the avatar.
+    if not is_t2v and end_image_url and not end_image_url.startswith("file://"):
+        payload["end_image_url"] = end_image_url
 
     data = await _submit_and_wait(model, payload, timeout_s=300.0, poll_every_s=4.0)
 
