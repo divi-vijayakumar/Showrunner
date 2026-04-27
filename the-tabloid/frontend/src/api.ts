@@ -72,4 +72,28 @@ export async function startDirect(
   })
 }
 
+export interface CastForStoryResult {
+  channel: ChannelId
+  personas: Persona[]
+  anchor: Persona | null
+  guests: Persona[]
+  // null when casting succeeded; otherwise one of:
+  //   "no_anchor" | "casting_error" | "casting_underdelivered"
+  fallback: string | null
+  error?: string
+  // The structured brief select_specific_story produced. Pass it back
+  // to /api/generate as `picked_story` so the pipeline doesn't recompute.
+  story_brief?: Record<string, unknown> | null
+}
+
+export async function castForStory(
+  channel: ChannelId,
+  story: StoryCandidate,
+): Promise<CastForStoryResult> {
+  return http(`/api/cast-for-story/${channel}`, {
+    method: 'POST',
+    body: JSON.stringify({ story }),
+  })
+}
+
 export const apiBase = API_BASE

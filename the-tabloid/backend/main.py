@@ -20,9 +20,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from .templates.panel_debate.agents.casting import cast_guests, panel_for
 from .templates.panel_debate.agents.story_selector import (
     enrich_with_bodies,
     fetch_headlines,
+    select_specific_story,
 )
 from .config import CHANNELS, channel_or_raise, settings
 from .db.firestore import LOCAL_IMAGE_DIR, LOCAL_VIDEO_DIR, FirestoreClient
@@ -32,6 +34,11 @@ from .templates.panel_debate.pipelines import (
     _generate_direct as run_direct_async,
     generate_segment as celery_generate,
     load_segment_manifest as load_direct_manifest,
+)
+from .shows.the_tabloid.anchors import (
+    as_persona,
+    for_channel as anchor_for_channel,
+    has_anchor,
 )
 from .shows.the_tabloid.personas import PERSONAS, default_panel
 
@@ -148,6 +155,100 @@ async def channel_stories(channel: str, limit: int = 8) -> dict[str, Any]:
             }
         )
     return {"channel": channel, "stories": candidates}
+
+
+class CastForStoryRequest(BaseModel):
+    """Picked story from the StoryPicker. Title + source are required;
+    body / link / summary are used for richer brief generation if present."""
+    story: dict[str, Any]
+
+
+@app.post("/api/cast-for-story/{channel}")
+async def cast_for_story(channel: str, body: CastForStoryRequest) -> dict[str, Any]:
+    """Run the casting agent for a picked story BEFORE PersonaSelect renders.
+
+    Two LLM calls:
+      1. story_selector.select_specific_story → structured brief
+         (key_facts, angle_a, angle_b, why_now) so casting has real
+         context, not just headline + summary.
+      2. casting.cast_guests → 3 story-relevant guests (provocateur,
+         analyst, humanist).
+
+    Returns `{personas, anchor, guests, fallback, story_brief}`. The 4
+    personas land in the PersonaSelect "Meet your panel" UI so the user
+    sees who is actually going to debate. The brief is returned too so
+    the pipeline run can reuse it instead of regenerating.
+
+    Falls back to default_panel on any failure (no anchor, casting LLM
+    error, or fewer than 3 guests returned). The `fallback` field tells
+    the UI which path was taken."""
+    try:
+        channel_or_raise(channel)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    if not body.story or not (body.story.get("title") or body.story.get("headline")):
+        raise HTTPException(status_code=400, detail="story with title required")
+
+    if not has_anchor(channel):
+        log.info("cast-for-story: no anchor for %s, returning default_panel", channel)
+        return {
+            "channel": channel,
+            "personas": default_panel(channel),
+            "anchor": None,
+            "guests": [],
+            "fallback": "no_anchor",
+            "story_brief": None,
+        }
+
+    anchor_persona = as_persona(anchor_for_channel(channel))
+
+    # Build a structured brief so casting has angles + key facts to work with.
+    try:
+        brief = await select_specific_story(channel, body.story)
+    except Exception as exc:
+        log.warning("cast-for-story: brief generation failed: %s", exc)
+        brief = {
+            "headline": body.story.get("title") or body.story.get("headline", ""),
+            "source": body.story.get("source", ""),
+            "url": body.story.get("link", ""),
+        }
+
+    try:
+        guests = await cast_guests(
+            story=brief, anchor=anchor_persona, channel_id=channel,
+        )
+    except Exception as exc:
+        log.exception("cast-for-story: casting failed for %s", channel)
+        return {
+            "channel": channel,
+            "personas": default_panel(channel),
+            "anchor": anchor_persona,
+            "guests": [],
+            "fallback": "casting_error",
+            "error": str(exc)[:200],
+            "story_brief": brief,
+        }
+
+    if len(guests) < 3:
+        log.warning("cast-for-story: only %d guests returned, falling back", len(guests))
+        return {
+            "channel": channel,
+            "personas": default_panel(channel),
+            "anchor": anchor_persona,
+            "guests": guests,
+            "fallback": "casting_underdelivered",
+            "story_brief": brief,
+        }
+
+    return {
+        "channel": channel,
+        "personas": panel_for(anchor_persona=anchor_persona, guests=guests),
+        "anchor": anchor_persona,
+        "guests": guests,
+        "fallback": None,
+        "story_brief": brief,
+    }
 
 
 @app.get("/api/channels")
