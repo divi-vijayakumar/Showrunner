@@ -25,7 +25,7 @@ from .templates.panel_debate.agents.story_selector import (
     fetch_headlines,
 )
 from .config import CHANNELS, channel_or_raise, settings
-from .db.firestore import LOCAL_AUDIO_DIR, LOCAL_IMAGE_DIR, LOCAL_VIDEO_DIR, FirestoreClient
+from .db.firestore import LOCAL_IMAGE_DIR, LOCAL_VIDEO_DIR, FirestoreClient
 from .templates.panel_debate.pipeline import _generate as run_pipeline_async
 from .templates.panel_debate.pipeline import _generate_direct as run_direct_async
 from .templates.panel_debate.pipeline import generate_segment as celery_generate
@@ -51,7 +51,7 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     personas: list[dict[str, Any]] | None = None  # optional user-swapped panel
-    mode: str | None = None  # "tabloid" (default) | "podcast"
+    mode: str | None = None  # "tabloid" (default) | "sample"
     # Optional: lock the segment to this exact RSS story instead of letting
     # the agent pick one. The frontend's StoryPicker provides this.
     story: dict[str, Any] | None = None
@@ -173,7 +173,7 @@ async def generate(
         raise HTTPException(status_code=404, detail=str(exc))
 
     mode = (body.mode if body and body.mode else "tabloid").lower()
-    if mode not in ("tabloid", "podcast", "sample"):
+    if mode not in ("tabloid", "sample"):
         raise HTTPException(status_code=400, detail=f"Unknown mode: {mode}")
 
     db = FirestoreClient()
@@ -645,17 +645,6 @@ async def direct_player(segment_id: str) -> HTMLResponse:
     if not segment_id or any(c in segment_id for c in "/\\."):
         raise HTTPException(status_code=400, detail="bad segment id")
     return HTMLResponse(_DIRECT_PLAYER_HTML.replace("__SEGMENT_ID__", segment_id))
-
-
-@app.get("/api/audio/{segment_id}.mp3")
-async def get_audio(segment_id: str):
-    """Stream a finished podcast mp3 when Firebase Storage isn't configured."""
-    if not segment_id or any(c in segment_id for c in "/\\."):
-        raise HTTPException(status_code=400, detail="bad segment id")
-    path = os.path.join(LOCAL_AUDIO_DIR, f"{segment_id}.mp3")
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="audio not found")
-    return FileResponse(path, media_type="audio/mpeg", filename=f"{segment_id}.mp3")
 
 
 @app.get("/api/videos/{segment_id}.mp4")

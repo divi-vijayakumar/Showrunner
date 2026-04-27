@@ -101,7 +101,7 @@ export function History({
                   className={`w-11 h-11 rounded-xl ${ui?.tint ?? 'bg-white/5'} ${ui?.border ?? 'border-white/10'} border flex items-center justify-center flex-shrink-0`}
                 >
                   <MSym
-                    name={r.media_kind === 'audio' || r.mode === 'podcast' ? 'headphones' : 'play_circle'}
+                    name={r.media_kind === 'audio' ? 'headphones' : 'play_circle'}
                     filled
                     className={`!text-[18px] ${ui?.fg ?? 'text-white'}`}
                   />
@@ -112,7 +112,7 @@ export function History({
                       {label}
                     </span>
                     <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-on-surface-variant/60">
-                      {r.mode === 'podcast' ? 'listen' : 'watch'}
+                      watch
                     </span>
                     {failed && (
                       <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">

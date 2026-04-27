@@ -111,7 +111,7 @@ export function Player({
   const headline = segment.headline ?? 'Tonight on The Tabloid'
   const source = segment.source ?? channel.label
   const tickerText = `  ·  ${headline.toUpperCase()}  ·  ${source.toUpperCase()}  ·  THE TABLOID  `
-  const isAudio = segment.media_kind === 'audio' || segment.mode === 'podcast'
+  const isAudio = segment.media_kind === 'audio'
 
   return (
     <div className="min-h-screen relative pb-28">

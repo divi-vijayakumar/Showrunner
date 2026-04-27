@@ -25,9 +25,9 @@ type View =
 
 export default function App() {
   const [view, setView] = useState<View>({ name: 'channel_select' })
-  // Default to podcast — video (tabloid) burns paid tokens on every run,
+  // Default to sample — video (tabloid) burns paid tokens on every run,
   // so we make the user opt in explicitly.
-  const [mode, setMode] = useState<SegmentMode>('podcast')
+  const [mode, setMode] = useState<SegmentMode>('sample')
 
   const goHome = useCallback(() => setView({ name: 'channel_select' }), [])
 

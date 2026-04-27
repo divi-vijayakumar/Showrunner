@@ -91,66 +91,6 @@ def _has_audio_stream(path: str) -> bool:
     return "audio" in r.stdout
 
 
-async def stitch_podcast(
-    audio_urls: list[str],
-    *,
-    headline: str,
-    channel_label: str,
-) -> str:
-    """Concat a list of TTS audio clips into one mp3 with small beat gaps
-    between speakers. Returns local path. No video work."""
-    work_dir = f"/tmp/tabloid_podcast_{uuid.uuid4().hex[:8]}"
-    os.makedirs(work_dir, exist_ok=True)
-
-    # 1) Download all TTS clips; normalise to mp3 at a common sample rate.
-    normalized: list[str] = []
-    for i, url in enumerate(audio_urls):
-        raw = os.path.join(work_dir, f"raw_{i:02d}.mp3")
-        await download_file(url, raw)
-        out = os.path.join(work_dir, f"norm_{i:02d}.mp3")
-        _run([
-            "ffmpeg", "-y",
-            "-i", raw,
-            "-ar", "44100", "-ac", "2",
-            "-codec:a", "libmp3lame", "-b:a", "160k",
-            out,
-        ])
-        normalized.append(out)
-
-    # 2) 300ms silent beat between speakers — feels natural, stops the
-    # episode sounding like a rapid-fire monologue.
-    beat_path = os.path.join(work_dir, "beat.mp3")
-    _run([
-        "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-        "-t", "0.3",
-        "-codec:a", "libmp3lame", "-b:a", "160k",
-        beat_path,
-    ])
-
-    # 3) Build concat list: clip / beat / clip / beat / ... / clip
-    concat_list = os.path.join(work_dir, "concat.txt")
-    with open(concat_list, "w") as f:
-        for i, p in enumerate(normalized):
-            f.write(f"file '{p}'\n")
-            if i != len(normalized) - 1:
-                f.write(f"file '{beat_path}'\n")
-
-    final_out = os.path.join(work_dir, "episode.mp3")
-    _run([
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", concat_list,
-        "-codec:a", "libmp3lame", "-b:a", "192k",
-        "-metadata", f"title={headline[:160]}",
-        "-metadata", f"album=The Tabloid · {channel_label}",
-        "-metadata", "artist=The Tabloid",
-        final_out,
-    ])
-
-    return final_out
-
-
 async def stitch_segment(
     clips: list[str],
     vo_clips: list[dict],

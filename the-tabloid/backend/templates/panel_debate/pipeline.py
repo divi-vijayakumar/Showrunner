@@ -43,7 +43,7 @@ from ...sdk.providers.seedream import (
     ensure_panelist_mcus,
     ensure_persona_portraits,
 )
-from ...sdk.providers.ffmpeg import download_file, stitch_podcast, stitch_segment
+from ...sdk.providers.ffmpeg import download_file, stitch_segment
 
 log = logging.getLogger(__name__)
 
@@ -155,22 +155,15 @@ async def _generate(
             {"briefing": briefing, "progress": 25},
         )
 
-        # 3. Debate (streams to Firestore as it goes). Podcast mode runs
-        # a longer turn order so the audio-only format has room to breathe.
+        # 3. Debate (streams to Firestore as it goes).
         debate = await run_debate(
             segment_id, channel, story, personas, db,
             briefing=briefing,
-            turn_count=16 if mode == "podcast" else 8,
+            turn_count=8,
         )
         await db.update_segment(segment_id, {"status": "generating", "progress": 35})
 
-        # 3b. Podcast branch — skip video entirely. TTS every debate line
-        # and concat into one .mp3. Fastest, cheapest form of the product.
-        if mode == "podcast":
-            await _generate_podcast(segment_id, db, debate, personas, story, cfg)
-            return
-
-        # 4. Broadcast script (tabloid/video path only)
+        # 4. Broadcast script
         script = await compile_script(channel, story, debate, personas=personas)
         # Persist the full script so the AgentLog UI can show what each scene
         # was supposed to say + how it was framed. Strip the long
@@ -1404,100 +1397,6 @@ async def _generate_sample(
         },
     )
     log.info("sample segment %s ready at %s", segment_id, media_url)
-
-
-async def _silent_fallback_url(text: str) -> str:
-    """Best-effort silent mp3 sized to the line length. Used when a TTS call
-    fails outright so one bad line doesn't kill the episode."""
-    import os, subprocess, uuid
-    out_dir = "/tmp/tabloid_podcast_silent"
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"silent_{uuid.uuid4().hex[:8]}.mp3")
-    secs = max(1.5, min(6.0, len(text) / 15))
-    try:
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
-                "-t", f"{secs:.2f}",
-                "-codec:a", "libmp3lame", "-b:a", "128k",
-                path,
-            ],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        open(path, "wb").close()
-    return f"file://{path}"
-
-
-async def _generate_podcast(
-    segment_id: str,
-    db,
-    debate: list[dict],
-    personas: list[dict],
-    story: dict,
-    cfg: dict,
-) -> None:
-    """TTS each debate line and concat into a single mp3. No video work.
-
-    Produces a natural listening experience: the 4 personas take turns
-    over one continuous audio track, with ~300ms beat gaps between lines.
-    """
-    audio_clips: list[str] = []
-    total = len(debate)
-
-    # Pace the TTS loop — Google AI Studio's free TTS tier is ~15 RPM.
-    # A 16-turn podcast at ~3s/call can tip the rolling window on the
-    # last few lines. 1.5s inter-call spacing keeps us comfortably under.
-    tts_pace_s = 1.5 if settings().tts_provider == "google" else 0.0
-
-    for i, m in enumerate(debate):
-        persona = next(
-            (p for p in personas if p["name"] == m.get("persona_name")),
-            personas[0],
-        )
-        voice_params = {
-            **(persona.get("voice") or {}),
-            "role": persona.get("role", ""),
-            "culture": persona.get("culture", ""),
-            "name": persona.get("name", ""),
-        }
-        try:
-            audio_url = await generate_seed_speech(
-                text=m.get("content", ""),
-                voice_params=voice_params,
-            )
-        except Exception as exc:
-            # Single-line fault isolation. If the TTS provider hangs or
-            # errors on one debate line, keep the episode going with a
-            # silent beat instead of crashing all 16 turns.
-            log.warning("TTS failure on turn %d (%s) — inserting silent beat", i, exc)
-            audio_url = await _silent_fallback_url(m.get("content", ""))
-        audio_clips.append(audio_url)
-        pct = 40 + int((i + 1) / total * 50)  # 40 → 90
-        await db.update_segment(segment_id, {"progress": pct})
-        if tts_pace_s and i + 1 < total:
-            await asyncio.sleep(tts_pace_s)
-
-    final_path = await stitch_podcast(
-        audio_clips,
-        headline=story.get("headline", ""),
-        channel_label=cfg["label"],
-    )
-    await db.update_segment(segment_id, {"progress": 95})
-
-    media_url = await db.upload_audio(final_path, segment_id)
-    await db.update_segment(
-        segment_id,
-        {
-            "status": "ready",
-            "progress": 100,
-            "video_url": media_url,      # reused field so the frontend can stay simple
-            "media_url": media_url,
-            "media_kind": "audio",
-        },
-    )
-    log.info("podcast segment %s ready at %s", segment_id, media_url)
 
 
 @celery_app.task(name="tabloid.generate_segment")

@@ -11,7 +11,7 @@ export type ChannelId =
 
 export type SegmentStatus = 'queued' | 'debate' | 'generating' | 'ready' | 'failed'
 
-export type SegmentMode = 'tabloid' | 'podcast' | 'sample'
+export type SegmentMode = 'tabloid' | 'sample'
 
 export type MediaKind = 'video' | 'audio'
 

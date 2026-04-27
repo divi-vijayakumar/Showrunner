@@ -61,7 +61,6 @@ export function ChannelSelect({
         {/* Mode toggle */}
         <div className="mb-3 glass-card rounded-full p-1 flex items-center gap-1">
           {([
-            { id: 'podcast' as SegmentMode, label: 'Listen', icon: 'headphones' },
             { id: 'sample' as SegmentMode, label: 'Sample', icon: 'bolt' },
             { id: 'tabloid' as SegmentMode, label: 'Watch', icon: 'play_circle' },
           ]).map((opt) => {
@@ -84,7 +83,6 @@ export function ChannelSelect({
           })}
         </div>
         <p className="mb-8 font-mono text-[10px] text-on-surface-variant/70 tracking-wider uppercase">
-          {mode === 'podcast' && 'Podcast · 16-turn debate · audio only · cheap'}
           {mode === 'sample' && '⚡ 5s anchor teaser · ~$1 · use to verify quality before full episode'}
           {mode === 'tabloid' && '⚠ Full 35s video render · ~$5–10 · burns video-model credit'}
         </p>
@@ -118,7 +116,6 @@ export function ChannelSelect({
                       {ch?.label ?? id.replace('_', ' ')}
                     </h3>
                     <p className="font-mono text-[11px] text-on-surface-variant/60 uppercase tracking-wider">
-                      {mode === 'podcast' && '16 turns · audio'}
                       {mode === 'sample' && '5s teaser · anchor only'}
                       {mode === 'tabloid' && '4 agents · video'}
                       {' · rss live'}

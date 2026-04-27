@@ -232,25 +232,6 @@ class FirestoreClient:
         base = settings().public_base_url.rstrip("/")
         return f"{base}/api/videos/{segment_id}.mp4"
 
-    async def upload_audio(self, local_path: str, segment_id: str) -> str:
-        """Publish a podcast mp3. Same three-mode fallback as upload_video."""
-        if self._bucket:
-            blob_name = f"segments/{segment_id}.mp3"
-            blob = self._bucket.blob(blob_name)
-
-            def _upload() -> str:
-                blob.upload_from_filename(local_path, content_type="audio/mpeg")
-                blob.make_public()
-                return blob.public_url
-
-            return await asyncio.to_thread(_upload)
-
-        os.makedirs(LOCAL_AUDIO_DIR, exist_ok=True)
-        dest = os.path.join(LOCAL_AUDIO_DIR, f"{segment_id}.mp3")
-        await asyncio.to_thread(shutil.copyfile, local_path, dest)
-        base = settings().public_base_url.rstrip("/")
-        return f"{base}/api/audio/{segment_id}.mp3"
-
     async def upload_image(
         self, local_path: str, segment_id: str, suffix: str
     ) -> str:
