@@ -33,7 +33,7 @@ from .jobs.pipeline import (
     SEGMENTS_DIR as DIRECT_SEGMENTS_DIR,
     load_segment_manifest as load_direct_manifest,
 )
-from .personas import PERSONAS, default_panel
+from .shows.the_tabloid.personas import PERSONAS, default_panel
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)

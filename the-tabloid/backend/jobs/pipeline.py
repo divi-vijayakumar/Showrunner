@@ -27,10 +27,14 @@ from ..templates.panel_debate.agents.story_selector import (
     select_specific_story,
     select_story,
 )
-from ..anchors import as_persona, for_channel as anchor_for_channel, has_anchor
+from ..shows.the_tabloid.anchors import (
+    as_persona,
+    for_channel as anchor_for_channel,
+    has_anchor,
+)
 from ..config import channel_or_raise, settings
 from ..db.firestore import FirestoreClient
-from ..personas import default_panel  # legacy fallback if no anchor + casting fails
+from ..shows.the_tabloid.personas import default_panel  # legacy fallback if no anchor + casting fails
 from ..sdk.providers.infographics import render_infographics
 from ..sdk.providers.seed_speech import generate_seed_speech
 from ..sdk.providers.seedance import extract_last_frame, generate_seedance_clip
