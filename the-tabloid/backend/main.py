@@ -26,10 +26,10 @@ from .templates.panel_debate.agents.story_selector import (
 )
 from .config import CHANNELS, channel_or_raise, settings
 from .db.firestore import LOCAL_AUDIO_DIR, LOCAL_IMAGE_DIR, LOCAL_VIDEO_DIR, FirestoreClient
-from .jobs.pipeline import _generate as run_pipeline_async
-from .jobs.pipeline import _generate_direct as run_direct_async
-from .jobs.pipeline import generate_segment as celery_generate
-from .jobs.pipeline import (
+from .templates.panel_debate.pipeline import _generate as run_pipeline_async
+from .templates.panel_debate.pipeline import _generate_direct as run_direct_async
+from .templates.panel_debate.pipeline import generate_segment as celery_generate
+from .templates.panel_debate.pipeline import (
     SEGMENTS_DIR as DIRECT_SEGMENTS_DIR,
     load_segment_manifest as load_direct_manifest,
 )
@@ -350,7 +350,7 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
     `avatar_path`) is used as the visual under those stings, so the
     cold-open and sign-off feel on-brand."""
     from .sdk.providers.ffmpeg_direct import stitch_direct_segment
-    from .jobs.pipeline import SEGMENTS_DIR, load_segment_manifest
+    from .templates.panel_debate.pipeline import SEGMENTS_DIR, load_segment_manifest
 
     if not segment_id or any(c in segment_id for c in "/\\."):
         raise HTTPException(status_code=400, detail="bad segment id")

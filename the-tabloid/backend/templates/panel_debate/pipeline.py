@@ -17,33 +17,33 @@ from typing import Any
 
 from celery import Celery
 
-from ..templates.panel_debate.agents.casting import cast_guests, panel_for
-from ..templates.panel_debate.agents.debate import run_debate
-from ..templates.panel_debate.agents.research import research_story
-from ..templates.panel_debate.agents.script import compile_script
-from ..templates.panel_debate.agents.story_selector import (
+from .agents.casting import cast_guests, panel_for
+from .agents.debate import run_debate
+from .agents.research import research_story
+from .agents.script import compile_script
+from .agents.story_selector import (
     enrich_with_bodies,
     fetch_headlines,
     select_specific_story,
     select_story,
 )
-from ..shows.the_tabloid.anchors import (
+from ...shows.the_tabloid.anchors import (
     as_persona,
     for_channel as anchor_for_channel,
     has_anchor,
 )
-from ..config import channel_or_raise, settings
-from ..db.firestore import FirestoreClient
-from ..shows.the_tabloid.personas import default_panel  # legacy fallback if no anchor + casting fails
-from ..sdk.providers.infographics import render_infographics
-from ..sdk.providers.seed_speech import generate_seed_speech
-from ..sdk.providers.seedance import extract_last_frame, generate_seedance_clip
-from ..sdk.providers.seedream import (
+from ...config import channel_or_raise, settings
+from ...db.firestore import FirestoreClient
+from ...shows.the_tabloid.personas import default_panel  # legacy fallback if no anchor + casting fails
+from ...sdk.providers.infographics import render_infographics
+from ...sdk.providers.seed_speech import generate_seed_speech
+from ...sdk.providers.seedance import extract_last_frame, generate_seedance_clip
+from ...sdk.providers.seedream import (
     ensure_master_stage_frame,
     ensure_panelist_mcus,
     ensure_persona_portraits,
 )
-from ..sdk.providers.ffmpeg import download_file, stitch_podcast, stitch_segment
+from ...sdk.providers.ffmpeg import download_file, stitch_podcast, stitch_segment
 
 log = logging.getLogger(__name__)
 
@@ -475,7 +475,7 @@ async def _generate(
                     "Scene %d (%s) failed: %s — using silent placeholder",
                     i, scene.get("title", "?"), str(exc)[:300],
                 )
-                from ..sdk.providers.seedance import _ensure_mock_clip
+                from ...sdk.providers.seedance import _ensure_mock_clip
                 clip_url = _ensure_mock_clip()
             clip_urls.append(clip_url)
 
@@ -571,7 +571,7 @@ async def _generate(
 
 
 SEGMENTS_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "data", "segments")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "segments")
 )
 
 
@@ -671,7 +671,9 @@ async def _resolve_local_avatar(avatar_path: str) -> str | None:
     """
     if not avatar_path:
         return None
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
     abs_path = (
         avatar_path if os.path.isabs(avatar_path)
         else os.path.join(repo_root, avatar_path)
@@ -784,7 +786,7 @@ async def _save_clip_locally(
     """Download a Fal CDN mp4 to data/segments/{sid}/scene_NN.mp4 and return
     (public_url, local_path). Returns (None, None) on failure.
     """
-    from ..sdk.providers.ffmpeg import download_file
+    from ...sdk.providers.ffmpeg import download_file
     slug = _scene_slug(scene_number)
     local_name = f"scene_{slug}.mp4"
     local_path = os.path.join(_segment_dir(segment_id), local_name)
