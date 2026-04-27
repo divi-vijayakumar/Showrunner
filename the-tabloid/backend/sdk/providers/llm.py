@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from ..config import settings
+from ...config import settings
 
 log = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ async def _call_openrouter(
 
     # Reuse the OpenRouter research-model env var for LLM too — user already
     # has one key + one model configured.
-    from ..config import settings as _s
+    from ...config import settings as _s
     model = _s().openrouter_research_model
 
     payload: dict[str, Any] = {

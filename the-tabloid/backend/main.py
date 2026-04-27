@@ -346,7 +346,7 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
     and `outro.mp3` if present. The avatar PNG (from the script's
     `avatar_path`) is used as the visual under those stings, so the
     cold-open and sign-off feel on-brand."""
-    from .video.stitch_direct import stitch_direct_segment
+    from .sdk.providers.ffmpeg_direct import stitch_direct_segment
     from .jobs.pipeline import SEGMENTS_DIR, load_segment_manifest
 
     if not segment_id or any(c in segment_id for c in "/\\."):

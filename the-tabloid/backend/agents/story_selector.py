@@ -10,7 +10,7 @@ import feedparser
 import httpx
 
 from ..config import channel_or_raise, settings
-from .llm import call_seed2, parse_json
+from ..sdk.providers.llm import call_seed2, parse_json
 
 log = logging.getLogger(__name__)
 

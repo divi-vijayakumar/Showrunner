@@ -31,15 +31,15 @@ from ..anchors import as_persona, for_channel as anchor_for_channel, has_anchor
 from ..config import channel_or_raise, settings
 from ..db.firestore import FirestoreClient
 from ..personas import default_panel  # legacy fallback if no anchor + casting fails
-from ..video.infographics import render_infographics
-from ..video.seed_speech import generate_seed_speech
-from ..video.seedance import extract_last_frame, generate_seedance_clip
-from ..video.seedream import (
+from ..sdk.providers.infographics import render_infographics
+from ..sdk.providers.seed_speech import generate_seed_speech
+from ..sdk.providers.seedance import extract_last_frame, generate_seedance_clip
+from ..sdk.providers.seedream import (
     ensure_master_stage_frame,
     ensure_panelist_mcus,
     ensure_persona_portraits,
 )
-from ..video.stitch import download_file, stitch_podcast, stitch_segment
+from ..sdk.providers.ffmpeg import download_file, stitch_podcast, stitch_segment
 
 log = logging.getLogger(__name__)
 
@@ -471,7 +471,7 @@ async def _generate(
                     "Scene %d (%s) failed: %s — using silent placeholder",
                     i, scene.get("title", "?"), str(exc)[:300],
                 )
-                from ..video.seedance import _ensure_mock_clip
+                from ..sdk.providers.seedance import _ensure_mock_clip
                 clip_url = _ensure_mock_clip()
             clip_urls.append(clip_url)
 
@@ -780,7 +780,7 @@ async def _save_clip_locally(
     """Download a Fal CDN mp4 to data/segments/{sid}/scene_NN.mp4 and return
     (public_url, local_path). Returns (None, None) on failure.
     """
-    from ..video.stitch import download_file
+    from ..sdk.providers.ffmpeg import download_file
     slug = _scene_slug(scene_number)
     local_name = f"scene_{slug}.mp4"
     local_path = os.path.join(_segment_dir(segment_id), local_name)

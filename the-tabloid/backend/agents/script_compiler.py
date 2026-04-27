@@ -26,7 +26,7 @@ import json
 from typing import Any
 
 from ..config import channel_or_raise
-from .llm import call_seed2, parse_json
+from ..sdk.providers.llm import call_seed2, parse_json
 
 
 # Deterministic spine for the script. The LLM fills in the dialogue and visual

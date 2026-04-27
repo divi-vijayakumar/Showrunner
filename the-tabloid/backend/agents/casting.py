@@ -19,7 +19,7 @@ import logging
 import re
 from typing import Any
 
-from .llm import call_seed2, parse_json
+from ..sdk.providers.llm import call_seed2, parse_json
 
 log = logging.getLogger(__name__)
 

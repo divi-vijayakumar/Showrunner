@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from ..config import settings
+from ...config import settings
 
 log = logging.getLogger(__name__)
 

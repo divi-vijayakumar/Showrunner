@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 
 from ..config import settings
-from .llm import parse_json
+from ..sdk.providers.llm import parse_json
 
 log = logging.getLogger(__name__)
 
