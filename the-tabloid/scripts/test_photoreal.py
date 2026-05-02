@@ -1,6 +1,6 @@
 """One-off test: can BytePlus Seedance i2v accept a Seedream-generated
-photoreal portrait? Bypasses Fal's moderator entirely — talks to BytePlus
-ARK directly. Costs roughly $0.50 (1 Seedream image + 1 Seedance 5s clip).
+photoreal portrait? Talks to BytePlus ARK directly. Costs roughly $0.50
+(1 Seedream image + 1 Seedance 5s clip).
 
 Run from repo root:
     cd the-tabloid
@@ -203,7 +203,6 @@ async def main() -> None:
     print(f"Video:    {video_url}")
     print()
     print("Photoreal pipeline is viable on direct BytePlus ARK.")
-    print("(Fal moderation status unknown — test separately if needed.)")
 
 
 if __name__ == "__main__":

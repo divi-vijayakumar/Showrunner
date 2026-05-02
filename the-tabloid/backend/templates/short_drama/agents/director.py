@@ -49,18 +49,25 @@ def _language_directive(language: str) -> str:
 
 
 def _audio_directive(audio_direction: str) -> str:
-    """Wraps the writer's audio_direction with the safety guards Seedance's
-    moderator needs (no weapons/explosions/dramatic stings — those 422 the
-    clip). The writer is instructed to keep audio_direction tame, but we
-    enforce it here too as a belt-and-braces."""
-    direction = (audio_direction or "studio dialogue only").strip()
+    """Wraps the writer's audio_direction with strict guards because Seedance's
+    output-audio moderator silently drops the audio track on too-emotional
+    sounds (baby crying, screaming, shouting, dramatic SFX). We force the
+    audio to be MUSIC + clean dialogue ONLY."""
+    direction = (audio_direction or "soft solo piano underscore").strip()
     return (
         "AUDIO DIRECTION: " + direction + ". "
-        "STRICT RULES: NO gunshots. NO explosions. NO breaking glass. NO "
-        "dramatic horror stings. NO action-movie ambient. Background ambient "
-        "and crowd voices are fine; describe what they're saying or chanting "
-        "if relevant. The featured spoken line below MUST be audible above "
-        "any background sound."
+        "STRICT AUDIO RULES (Seedance moderator is jumpy):\n"
+        "  - The ONLY audio in the clip is: (a) the spoken line below, "
+        "(b) the music described above as a low gentle underscore.\n"
+        "  - NO sound effects of any kind. NO baby crying, NO screaming, "
+        "NO shouting, NO sobbing, NO gasping, NO heavy breathing, NO loud "
+        "laughter, NO clapping, NO doorbells, NO phone rings, NO alarms, "
+        "NO sirens, NO explosions, NO gunshots, NO breaking glass, NO "
+        "dramatic stings, NO action ambient.\n"
+        "  - NO background crowd voices. NO chanting. NO real-person names "
+        "as utterances.\n"
+        "  - Music stays at low underscore volume; the spoken line MUST be "
+        "the dominant audio element."
     )
 
 
@@ -97,12 +104,9 @@ def _cast_lock(
 ) -> str:
     """One-line-per-character description so Seedance knows who's in frame.
 
-    `character_descriptions` is the user-supplied label-context map (e.g.
-    "vijay" -> "51-year-old Tamil actor-politician, salt-pepper hair, leather
-    jacket"). When no description is given, we fall back to a generic
-    description because Seedance has NO image reference for the character —
-    the new ARK API rejects real-person photos as reference, so cast comes
-    purely from this prompt block."""
+    Cast continuity is the load-bearing constraint here — without it the
+    model regenerates the character from scratch each scene and they look
+    like different people. Pass the FULL description (no clipping)."""
     if not visible_characters:
         return ""
     lines = []
@@ -111,18 +115,19 @@ def _cast_lock(
         if desc:
             lines.append(f"  · {label}: {desc}")
         else:
-            # Generic Pixar-Tamil-character fallback so the model has SOME
-            # description instead of just a name.
             lines.append(
-                f"  · {label}: a stylized 3D-animated South Asian character "
-                "rendered in Pixar key-art style, age and wardrobe inferred "
-                "from the scene context"
+                f"  · {label}: a stylized 3D-animated character rendered in "
+                "modern Pixar key-art style"
             )
     return (
         "CAST IN FRAME — these are the ONLY characters visible in this shot. "
-        "Render each character in the locked Pixar 3D-animated style described "
-        "above. Keep each character's identity (face, hair, age, wardrobe) "
-        "consistent with the description below:\n"
+        "Render each character EXACTLY as described below. Same face, same "
+        "age, same hair color and length, same skin tone, same wardrobe "
+        "(same outfit, accessories, makeup) as in every other scene of this "
+        "short film. Cast continuity is the most important constraint — do "
+        "NOT drift toward a different age, gender, or look between scenes. "
+        "If the first frame already shows the character, match that "
+        "appearance verbatim:\n"
         + "\n".join(lines)
     )
 

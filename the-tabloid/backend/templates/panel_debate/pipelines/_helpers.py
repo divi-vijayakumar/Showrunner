@@ -3,9 +3,13 @@
 Anything that's NOT mode-specific lives here:
   - the segment data layout (SEGMENTS_DIR, manifest read/write)
   - the chain-anchor + last-frame ffmpeg helpers
-  - the avatar→Fal upload-and-cache helper
+  - the avatar / chain-anchor upload-and-cache helpers (ARK Seedance fetches
+    images server-side, so local files have to be hosted somewhere reachable;
+    we route through the FirestoreClient's image upload, which writes to
+    Firebase Storage when configured and falls back to the local
+    /api/images/{...} endpoint otherwise).
   - the per-scene clip-state initial shape + local-mp4 download helper
-  - cost / model / speaker-visual-id constants the prompt builders share
+  - cost / mode-tag / speaker-visual-id constants the prompt builders share
 
 Mode-specific logic — RSS pulling, debate simulation, the prompt
 construction with the alternating-anchor pattern, etc. — stays in
@@ -13,13 +17,10 @@ construction with the alternating-anchor pattern, etc. — stays in
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import subprocess
 from typing import Any
-
-from ....config import settings
 
 log = logging.getLogger(__name__)
 
@@ -29,12 +30,6 @@ log = logging.getLogger(__name__)
 SEGMENTS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "segments")
 )
-
-
-# Seedance fast-tier endpoints — direct-mode uses i2v almost exclusively;
-# t2v is the avatar-failed fallback for scene 1 only.
-_T2V_MODEL = "bytedance/seedance-2.0/fast/text-to-video"
-_I2V_MODEL = "bytedance/seedance-2.0/fast/image-to-video"
 
 
 # Short distinctive visual identifier per panelist. Fed into the lean i2v
@@ -64,15 +59,14 @@ _SPEAKER_VISUAL_ID = {
 }
 
 
-# Estimated cost per Fal call (USD). Used for live cost tracking in the
-# manifest + player UI. Fal's published rates April 2026:
-#   - Seedance 2.0 fast (t2v + i2v): $0.2419/s × 5s = $1.21/clip
-# Failed scenes don't bill (Fal rejects 422/timeout pre-completion).
+# Estimated cost per Seedance call (USD). Used for live cost tracking in
+# the manifest + player UI. BytePlus ARK Seedance 2.0 fast pricing as of
+# 2026-05: ~$0.24/s × 5s ≈ $1.21 per clip. Failed tasks don't bill (ARK
+# rejects 4xx pre-creation; the polled "failed" status is also free).
 _COST_T2V = 1.21
 _COST_I2V = 1.21
 _COST_BY_MODE = {
-    # t2v: text-to-video, no input image. Used only as fallback when no
-    # avatar exists (effectively never on direct mode).
+    # t2v: text-to-video, no input image. Fallback when no avatar exists.
     "t2v": _COST_T2V,
     # i2v: i2v with image_url only (no end frame). Generic fallback.
     "i2v": _COST_I2V,
@@ -80,11 +74,10 @@ _COST_BY_MODE = {
     "i2v-avatar": _COST_I2V,
     # i2v-chained: odd scenes 3+. image_url = prior scene's last frame
     # (which IS the avatar because prior even scene end-anchored to it).
-    # No end_image_url — free landing for the speaker's beat.
+    # No end frame — free landing for the speaker's beat.
     "i2v-chained": _COST_I2V,
     # i2v-locked: even scenes 2+. image_url = prior scene's last frame +
-    # end_image_url = avatar — re-anchors panel composition every cut.
-    # Same Fal endpoint as i2v-chained, just with the second image.
+    # last_frame_image = avatar — re-anchors panel composition every cut.
     "i2v-locked": _COST_I2V,
 }
 
@@ -157,11 +150,18 @@ def _extract_last_frame_to_png(mp4_path: str, png_path: str) -> str | None:
     return png_path
 
 
-async def _resolve_local_avatar(avatar_path: str) -> str | None:
-    """Take a local image path (relative to repo root or absolute), upload
-    it to Fal storage on first call, cache the public URL in a sidecar file
-    next to the image. Subsequent calls reuse the cached URL with no
-    re-upload. Returns None on any failure.
+async def _resolve_local_avatar(
+    avatar_path: str, segment_id: str
+) -> str | None:
+    """Take a local image path (relative to repo root or absolute), publish
+    it via the FirestoreClient image uploader on first call, cache the public
+    URL in a sidecar file next to the image. Subsequent calls reuse the
+    cached URL with no re-upload. Returns None on any failure.
+
+    The uploader writes to Firebase Storage when configured; otherwise it
+    copies into the local image dir and returns a /api/images/{...} URL —
+    which only works if PUBLIC_BASE_URL is reachable from BytePlus. Pure-
+    localhost dev runs will silently fail at ARK fetch time.
     """
     if not avatar_path:
         return None
@@ -176,7 +176,7 @@ async def _resolve_local_avatar(avatar_path: str) -> str | None:
         log.warning("avatar_path does not exist: %s", abs_path)
         return None
 
-    cache_path = abs_path + ".fal_url.txt"
+    cache_path = abs_path + ".url.txt"
     if os.path.exists(cache_path):
         try:
             cached = open(cache_path).read().strip()
@@ -185,15 +185,10 @@ async def _resolve_local_avatar(avatar_path: str) -> str | None:
         except Exception:
             pass
 
+    from ....db.firestore import FirestoreClient
+    db = FirestoreClient()
     try:
-        os.environ.setdefault("FAL_KEY", settings().fal_api_key)
-        import fal_client
-    except Exception as exc:
-        log.warning("fal_client unavailable for avatar upload: %s", exc)
-        return None
-
-    try:
-        url = await asyncio.to_thread(fal_client.upload_file, abs_path)
+        url = await db.upload_image(abs_path, segment_id, "avatar")
     except Exception as exc:
         log.warning("avatar upload failed: %s", exc)
         return None
@@ -211,17 +206,12 @@ async def _prep_chain_anchor(
 ) -> str | None:
     """For scene N → produce the chain anchor URL that scene N+1 will pass
     as first_frame for i2v. Stylized-aesthetic episodes don't need
-    face-stripping — Fal's i2v moderator only flags photoreal facial
-    likeness, not stylized cartoon output. So we just extract the last
-    frame and upload it raw. Returns None on any failure (caller halts).
+    face-stripping — ARK Seedance's i2v moderator only flags photoreal
+    facial likeness, not stylized cartoon output. We just extract the last
+    frame and publish it via FirestoreClient. Returns None on any failure
+    (caller halts).
     """
     if not local_mp4 or not os.path.exists(local_mp4):
-        return None
-    try:
-        os.environ.setdefault("FAL_KEY", settings().fal_api_key)
-        import fal_client
-    except Exception as exc:
-        log.warning("fal_client unavailable for chain prep: %s", exc)
         return None
 
     png_path = os.path.join(
@@ -231,8 +221,12 @@ async def _prep_chain_anchor(
     if not _extract_last_frame_to_png(local_mp4, png_path):
         return None
 
+    from ....db.firestore import FirestoreClient
+    db = FirestoreClient()
     try:
-        anchor_url = await asyncio.to_thread(fal_client.upload_file, png_path)
+        anchor_url = await db.upload_image(
+            png_path, segment_id, f"chain_anchor_{_scene_slug(scene_number)}"
+        )
     except Exception as exc:
         log.warning("chain anchor upload failed: %s", exc)
         return None
@@ -242,9 +236,10 @@ async def _prep_chain_anchor(
 async def _save_clip_locally(
     segment_id: str, scene_number: Any, remote_url: str
 ) -> tuple[str, str] | tuple[None, None]:
-    """Download a Fal CDN mp4 to data/segments/{sid}/scene_NN.mp4 and return
-    (public_url, local_path). Returns (None, None) on failure.
+    """Download a Seedance ARK CDN mp4 to data/segments/{sid}/scene_NN.mp4
+    and return (public_url, local_path). Returns (None, None) on failure.
     """
+    from ....config import settings
     from ....sdk.providers.ffmpeg import download_file
     slug = _scene_slug(scene_number)
     local_name = f"scene_{slug}.mp4"

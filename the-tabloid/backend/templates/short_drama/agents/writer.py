@@ -46,6 +46,18 @@ CREATIVE BAR:
 - Visual storytelling matters as much as dialogue. Some scenes can be silent
   with just music — say so in the audio_direction.
 
+OUTRO / TITLE BEAT:
+- The FINAL scene of every film MUST be the title beat. Render the title
+  in-world: e.g. "the family is asleep, soft golden light, the title 'GOOD
+  NIGHT KATYA' appears in soft hand-painted letters above them, then holds."
+  Seedance handles the title animation natively — DO NOT delegate the title
+  to an external editor pass.
+- That final scene's `visible_characters` can be empty (camera pulls back
+  past the cast) or include them all. `audio_direction` is just a soft
+  music sting (e.g. "soft solo piano outro, no dialogue").
+- `outro_card` in the response is metadata-only (UI uses it to display the
+  title near the player) — the editor will NOT synthesize a separate card.
+
 AMBIENCE (load-bearing — Seedream renders what you describe):
 - Every scene MUST set `time_of_day` and `lighting` precisely. The image
   model renders bright noon by default — without an explicit night cue
@@ -71,11 +83,21 @@ LANGUAGE:
   language unless the brief explicitly calls for code-switching.
 - For Tamil scenes, write the line in Tamil script (தமிழ்).
 
-AUDIO:
-- audio_direction describes background ambient/music alongside the spoken line.
-- Pixar-style tame audio: lullabies, gentle piano, room tone, a kettle whistle,
-  giggles, soft footsteps. NO loud SFX, NO dramatic stings — those trip the
-  moderator.
+AUDIO (very strict — Seedance's output-audio moderator is jumpy):
+- audio_direction must ONLY describe ambient music. Use this strict allowlist:
+  "soft solo piano", "warm acoustic guitar", "gentle music box lullaby",
+  "soft strings underscore", "warm cello underscore", "soft jazz brushes",
+  "gentle wind chimes", "room tone".
+- NEVER include in audio_direction: baby cries, crying sounds, screaming,
+  shouting, yelling, gasping, sobbing, grunting, sighing heavily, wailing,
+  political language, news, real-person names, weapons, sirens, alarms,
+  explosions, breaking glass, dramatic stings, action SFX. These TRIP the
+  Seedance moderator and silently drop the scene's audio.
+- audio_direction can describe a feeling: "warm and reassuring", "playful
+  and curious", "tender and sleepy". Avoid sound-effect verbs (cry, shout,
+  laugh-loudly, etc.) — keep it musical and atmospheric.
+- Spoken lines (dialogue) are fine in any tone, but keep them gentle and
+  short (1-2 sentences max per scene).
 
 Always return STRICT JSON. No prose around it. No markdown fences."""
 

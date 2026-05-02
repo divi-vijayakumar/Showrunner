@@ -5,6 +5,9 @@ The portraits are what we pass to Seedance 2.0 as `first_frame_image` when
 generating each scene, so the same "Kavitha" looks like the same person across
 all 7 scenes in the segment. This is the single biggest quality lever for the
 broadcast feel.
+
+All images are produced via BytePlus ARK directly. The mock provider is the
+only non-byteplus branch — used for offline tests where no real API is hit.
 """
 from __future__ import annotations
 
@@ -48,8 +51,8 @@ def _portrait_prompt(persona: dict[str, Any]) -> str:
 
     Important: the portrait is intentionally STYLIZED, not photoreal.
     Reasons:
-      1. Fal's Seedance 2.0 content policy rejects images flagged as
-         "likeness of a real person" — photoreal portraits trigger this.
+      1. Seedance 2.0's i2v moderator rejects images flagged as "likeness
+         of a real person" — photoreal portraits trigger this.
       2. Stylized characters drift less between Seedance img2video scenes
          than photoreal faces.
       3. The Tabloid's editorial tone fits a bold graphic-novel /
@@ -115,12 +118,11 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
     local_path = _portrait_cache_path(cache_key)
     url_cache_path = local_path + ".url.txt"
 
-    provider = settings().image_provider
-    is_mock = settings().mock or provider == "mock"
+    is_mock = settings().mock or settings().image_provider == "mock"
 
-    # Cache lookup. When the pipeline wants a public URL (fal or byteplus),
-    # only trust the URL cache — never return a stale file:// path from a
-    # previous mock run, because Fal/Seedance can't fetch local files.
+    # Cache lookup. Only trust the URL cache when the pipeline wants a public
+    # URL (live mode) — never return a stale file:// path from a previous
+    # mock run, because ARK Seedance can't fetch local files.
     if os.path.exists(url_cache_path):
         cached = open(url_cache_path).read().strip()
         if cached and (is_mock or not cached.startswith("file://")):
@@ -132,13 +134,6 @@ async def generate_persona_portrait(persona: dict[str, Any]) -> str:
         return _mock_portrait(persona, local_path)
 
     prompt = _portrait_prompt(persona)
-
-    if provider == "fal":
-        from .fal import generate_fal_image
-        img_url = await generate_fal_image(prompt, size="portrait_16_9")
-        with open(url_cache_path, "w") as f:
-            f.write(img_url)
-        return img_url
 
     payload: dict[str, Any] = {
         "model": settings().seedream_model,
@@ -217,8 +212,8 @@ def _master_stage_prompt(personas: list[dict[str, Any]]) -> str:
     same stylized 3D-animated aesthetic as the persona portraits.
 
     This image is the source of truth for set/cast/wardrobe/lighting across
-    every scene. Same aesthetic as the portraits avoids Fal's real-likeness
-    filter and keeps drift between Seedream and Seedance minimal.
+    every scene. Same aesthetic as the portraits avoids Seedance's i2v
+    real-likeness filter and keeps drift between Seedream and Seedance minimal.
     """
     panel = _panel_descriptor(personas)
     return (
@@ -289,15 +284,10 @@ async def _seedream_request(prompt: str) -> str:
     Mirrors the call shape in `generate_persona_portrait`. Returns the URL
     Seedream returned (the ARK CDN URL is stable for the segment run).
     """
-    provider = settings().image_provider
-    if settings().mock or provider == "mock":
+    if settings().mock or settings().image_provider == "mock":
         # Mock path — caller handles fallback to a tinted PNG since stage
         # frames don't have a single persona to color-key off of.
         raise RuntimeError("mock mode — caller should use a stub image")
-
-    if provider == "fal":
-        from .fal import generate_fal_image
-        return await generate_fal_image(prompt, size="portrait_16_9")
 
     payload: dict[str, Any] = {
         "model": settings().seedream_model,

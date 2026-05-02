@@ -15,8 +15,8 @@ from ...templates.panel_debate.set import BroadcastStudio, PanelDebateSetLibrary
 THE_TABLOID_STUDIO = BroadcastStudio(
     id="the_tabloid_studio",
     # Local avatar PNG used as the master stage frame for direct mode;
-    # the pipeline uploads it to Fal storage on first run and caches the
-    # public URL in a sidecar (see _resolve_local_avatar).
+    # the pipeline publishes it via FirestoreClient on first run and caches
+    # the public URL in a sidecar (see _resolve_local_avatar).
     master_image=ImageRef("scripts/The_tabloid_set.png"),
     lighting=LightingSpec(
         key_position="camera_left",

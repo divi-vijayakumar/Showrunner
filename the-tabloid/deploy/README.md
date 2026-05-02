@@ -53,8 +53,6 @@ SEED_SPEECH_API_KEY=...
 OPENROUTER_API_KEY=...
 ELEVENLABS_API_KEY=...
 GOOGLE_AISTUDIO_API_KEY=...
-FAL_KEY=...
-FAL_VIDEO_MODEL=bytedance/seedance-2.0/fast/text-to-video
 FIREBASE_PROJECT_ID=theaitabloid
 FIREBASE_STORAGE_BUCKET=
 GOOGLE_APPLICATION_CREDENTIALS=/opt/tabloid/the-tabloid/backend/firebase-service-account.json
@@ -63,8 +61,8 @@ PUBLIC_BASE_URL=https://api.tabloid.yourdomain.com
 TABLOID_MOCK=0
 LLM_PROVIDER=openrouter
 TTS_PROVIDER=elevenlabs    # or google if you've enabled GCP Tier 1
-VIDEO_PROVIDER=fal
-IMAGE_PROVIDER=fal
+VIDEO_PROVIDER=byteplus
+IMAGE_PROVIDER=byteplus
 ```
 
 Headless droplets can't run `gcloud auth application-default login`, so use a
@@ -169,7 +167,7 @@ app.add_middleware(
 Then `git push` → SSH in → `git pull && systemctl restart tabloid`.
 
 ### Rotate keys
-The dev keys touched local logs, .env files, and your terminal history. Generate fresh production keys for BytePlus / OpenRouter / ElevenLabs / Fal and swap them on the droplet only.
+The dev keys touched local logs, .env files, and your terminal history. Generate fresh production keys for BytePlus / OpenRouter / ElevenLabs and swap them on the droplet only.
 
 ### Auto-deploy (optional)
 Netlify auto-builds on every push to `main` already. For the backend, the simplest "deploy on push" is a tiny GitHub Action that ssh's in and runs `git pull && systemctl restart tabloid`. Skip until you start iterating on prod.

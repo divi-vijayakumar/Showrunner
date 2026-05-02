@@ -61,12 +61,16 @@ def _keyframe_prompt(
     for label in visible:
         desc = cast_descriptions.get(label, "")
         if desc:
-            cast_lines.append(f"  · {label}: {desc[:300]}")
+            # Use the FULL description (was clipped to 300 chars; cast
+            # continuity needs the full age+hair+wardrobe spec to land).
+            cast_lines.append(f"  · {label}: {desc}")
         else:
             cast_lines.append(f"  · {label}")
     cast_block = (
-        "CHARACTERS IN FRAME (render each consistently with the supplied "
-        "reference portrait — same face, hair, age, wardrobe in every frame):\n"
+        "CHARACTERS IN FRAME — render each EXACTLY as described below. "
+        "Same face, same age, same hair, same wardrobe, same skin tone in "
+        "EVERY frame of the film. Cast continuity is the most important "
+        "constraint; never drift toward a different person:\n"
         + "\n".join(cast_lines)
     ) if cast_lines else ""
     ambience_block = ""

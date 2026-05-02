@@ -14,7 +14,7 @@ chain-anchor + persistence loop.
 Concretely, the script JSON pre-fills:
   - story    (`story` block: headline, source, url, ...)
   - cast     (`panel`: 4 panelists with id/name/role/voice/visual_description)
-  - set      (`avatar_path`: PNG → uploaded to Fal once, cached)
+  - set      (`avatar_path`: PNG → uploaded once via FirestoreClient, cached)
   - script   (`scenes[]`: vo_line, seedance_prompt, camera_motion,
               featured_persona_id, duration)
   - director's per-scene intent (`scenes[i].seedance_prompt` is the motion
@@ -44,9 +44,7 @@ from ....sdk.types import CastMemberRef, ShotPlan
 from ._helpers import (
     _COST_BY_MODE,
     _COST_I2V,
-    _I2V_MODEL,
     _SPEAKER_VISUAL_ID,
-    _T2V_MODEL,
     _initial_clips_state,
     _prep_chain_anchor,
     _resolve_local_avatar,
@@ -263,11 +261,9 @@ def _compose_shot_plan(
     is_even_position = (scene_index + 1) % 2 == 0
     chosen_end_image: str | None = None
     if scene_index == 0 and avatar_url:
-        chosen_model = _I2V_MODEL
         first_frame: str | None = avatar_url
         mode_tag = "i2v-avatar"
     elif prior_chain_url:
-        chosen_model = _I2V_MODEL
         first_frame = prior_chain_url
         if avatar_url and is_even_position:
             chosen_end_image = avatar_url
@@ -275,7 +271,6 @@ def _compose_shot_plan(
         else:
             mode_tag = "i2v-chained"
     else:
-        chosen_model = _T2V_MODEL
         first_frame = None
         mode_tag = "t2v"
 
@@ -315,7 +310,6 @@ def _compose_shot_plan(
         end_image_url=chosen_end_image,
         motion=motion_desc,
         framing="medium_close_up",
-        model=chosen_model,
         mode_tag=mode_tag,
         prompt=prompt,
         spoken_line=vo_line,
@@ -340,7 +334,6 @@ async def _execute_shot_plan(
         first_frame_image=plan.start_image_url,
         reference_image=None,
         seed=plan.seed,
-        model_override=plan.model,
         end_image_url=plan.end_image_url,
     )
     public_url, local_path = await _save_clip_locally(
@@ -365,8 +358,8 @@ async def _generate_direct(
     to render a slice. The on-disk manifest at data/segments/{sid}/
     manifest.json is the source of truth — preserves state across uvicorn
     restarts and across batches. Successfully-rendered clips are downloaded
-    from Fal CDN to data/segments/{sid}/scene_NN.mp4 and re-served locally
-    so we don't lose them when Fal's CDN URLs expire.
+    from the Seedance ARK CDN to data/segments/{sid}/scene_NN.mp4 and
+    re-served locally so we don't lose them when ARK's CDN URLs expire.
     """
     db = FirestoreClient()
     personas = list(script_data.get("panel") or [])
@@ -400,16 +393,19 @@ async def _generate_direct(
     # Set agent (short-circuited): resolve the episode avatar URL that
     # scene 1 will use as first_frame.
     #   1. script_data.avatar_path: a local image path (relative to repo
-    #      root). Uploaded to Fal once, URL cached in a sidecar.
+    #      root). Published once via FirestoreClient (Firebase Storage if
+    #      configured, else /api/images), URL cached in a sidecar.
     #   2. fallback: ensure_master_stage_frame generates a stylized cartoon
-    #      avatar via Seedream/Flux. Used when no local file is provided.
+    #      avatar via ARK Seedream. Used when no local file is provided.
     avatar_url: str | None = None
     if script_data.get("skip_avatar"):
         pass
     elif script_data.get("avatar_path"):
-        avatar_url = await _resolve_local_avatar(script_data["avatar_path"])
+        avatar_url = await _resolve_local_avatar(
+            script_data["avatar_path"], segment_id
+        )
         if avatar_url:
-            log.info("Using local avatar (uploaded to Fal): %s", avatar_url)
+            log.info("Using local avatar (published): %s", avatar_url)
         else:
             log.warning(
                 "Local avatar path %s could not be resolved — scene 1 falls back to t2v",
@@ -459,10 +455,9 @@ async def _generate_direct(
     )
 
     seated_panel = _seated_panel(personas)
-    native_audio = (
-        settings().video_provider == "fal"
-        and "seedance" in settings().fal_video_model
-    )
+    # Seedance 2.0 produces synchronized lip-synced audio when generate_audio
+    # is on. Toggle by VIDEO_PROVIDER, since the mock provider is silent.
+    native_audio = settings().video_provider == "byteplus"
 
     for batch_pos, i in enumerate(target_indices):
         scene = scenes[i]

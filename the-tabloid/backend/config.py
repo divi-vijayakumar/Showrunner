@@ -104,12 +104,13 @@ class Settings:
     # Celery
     redis_url: str = _env("REDIS_URL", "redis://localhost:6379/0")
 
-    # Provider toggles — default to BytePlus Seed everywhere since that's the
-    # hackathon story. Flip individually when a given Seed surface is blocked.
+    # Provider toggles — every surface goes through BytePlus ARK by default.
+    # Set to "mock" to stub out for offline tests; LLM and TTS additionally
+    # support fallback vendors when ARK is rate-limited.
     #   llm_provider:   byteplus | openrouter
     #   tts_provider:   byteplus | elevenlabs | google
-    #   video_provider: byteplus | fal | mock
-    #   image_provider: byteplus | fal | mock
+    #   video_provider: byteplus | mock
+    #   image_provider: byteplus | mock
     llm_provider: str = _env("LLM_PROVIDER", "byteplus").lower()
     tts_provider: str = _env("TTS_PROVIDER", "byteplus").lower()
     video_provider: str = _env("VIDEO_PROVIDER", "byteplus").lower()
@@ -119,25 +120,13 @@ class Settings:
     # of i2v from a Seedream-anchored frame. Defaults True because t2v gives
     # stronger panel-cast consistency on Seedance 2.0 (verified empirically)
     # and sidesteps the Seedance i2v moderator's photoreal-likeness rejection.
-    # Provider-agnostic — applies to both Fal and BytePlus video paths.
     text_to_video: bool = _bool("VIDEO_TEXT_TO_VIDEO", True)
 
-    # Fallback provider creds (set the ones you're actually using)
+    # Fallback LLM / TTS provider creds (set the ones you're actually using)
     elevenlabs_api_key: str = _env("ELEVENLABS_API_KEY")
     elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_multilingual_v2")
     google_aistudio_api_key: str = _env("GOOGLE_AISTUDIO_API_KEY") or _env("GOOGLE_API_KEY")
     google_tts_model: str = _env("GOOGLE_TTS_MODEL", "gemini-2.5-flash-preview-tts")
-    fal_api_key: str = _env("FAL_KEY") or _env("FAL_API_KEY")
-    # Fal-hosted Seedance 2.0 fast img2video — same BytePlus Seed family,
-    # billed via Fal, AND natively generates synchronized audio (the v1 path
-    # we used before is silent-only, which is why early runs had no voice).
-    # Override with FAL_VIDEO_MODEL to pin a different tier:
-    #   bytedance/seedance-2.0/image-to-video       — premium, ~$0.30/sec
-    #   bytedance/seedance-2.0/fast/image-to-video  — fast,    ~$0.24/sec  (default)
-    fal_video_model: str = _env(
-        "FAL_VIDEO_MODEL", "bytedance/seedance-2.0/fast/image-to-video"
-    )
-    fal_image_model: str = _env("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
 
     # Dev
     mock: bool = _bool("TABLOID_MOCK", False)

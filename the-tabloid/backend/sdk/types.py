@@ -210,13 +210,12 @@ class ShotPlan:
     # pick the camera_motion enum value Seedance accepts).
     framing: str = "medium_close_up"
 
-    # The model + mode tag the executor should call. Direct-mode's
-    # alternating-anchor pattern uses these tags:
+    # Mode tag describing the per-scene anchor strategy. Used for cost
+    # bookkeeping and player UI. Direct-mode's alternating-anchor pattern:
     #   "i2v-avatar"  — scene 1; image_url=avatar, no end_image_url
     #   "i2v-locked"  — even scenes; image_url=prior last frame, end=avatar
     #   "i2v-chained" — odd scenes; image_url=prior last frame, no end
     #   "t2v"         — fallback when no avatar available
-    model: str = "bytedance/seedance-2.0/fast/image-to-video"
     mode_tag: str = "i2v-avatar"
 
     # Pre-assembled prompt string, ready to feed Seedance. The director

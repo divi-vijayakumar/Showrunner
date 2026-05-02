@@ -398,24 +398,17 @@ async def _generate(
             )
 
         # Map scene_index → vo_line so we can fold dialogue INTO the Seedance
-        # prompt. When using a model that generates native audio (Seedance on
-        # Fal with generate_audio=true), this gives us lip-synced dialogue
-        # with zero separate-TTS work.
+        # prompt. With generate_audio=true, Seedance lip-syncs the SPOKEN LINE
+        # block directly, so we don't need a separate TTS pass.
         vo_by_scene: dict[int, dict[str, Any]] = {}
         for vo in script.get("vo_script", []):
             vo_by_scene[int(vo.get("scene_index", -1))] = vo
 
         # Seedance 2.0 produces synchronized lip-synced audio when
-        # generate_audio=true, on either the Fal or BytePlus ARK path. When
-        # native_audio is True we skip the separate Seed Speech TTS step and
-        # let the video model speak the SPOKEN LINE block directly.
-        native_audio = (
-            settings().video_provider == "byteplus"
-            or (
-                settings().video_provider == "fal"
-                and "seedance" in settings().fal_video_model
-            )
-        )
+        # generate_audio=true. When native_audio is True we skip the
+        # separate Seed Speech TTS step and let the video model speak the
+        # SPOKEN LINE block directly. Mock provider is silent.
+        native_audio = settings().video_provider == "byteplus"
 
         clip_urls: list[str] = []
         scenes = script["scenes"]
@@ -443,8 +436,8 @@ async def _generate(
 
             # Audio direction. Seedance keeps inferring dramatic SFX —
             # whoosh stings on whip-pan scenes, action-movie ambient on
-            # the Clash scene, occasional gun/explosion sounds — which
-            # Fal's audio moderator flags as sensitive and 422s the clip.
+            # the Clash scene, occasional gun/explosion sounds — which the
+            # ARK audio moderator flags as sensitive and fails the clip.
             # Force studio-dialogue-only for every scene.
             locked_prompt = (
                 locked_prompt
@@ -484,12 +477,12 @@ async def _generate(
                     generate_audio=native_audio,
                 )
             except Exception as exc:
-                # Single-scene fault isolation. Most common cause: Fal's content
-                # moderator flags one synthesized-audio clip as sensitive (e.g.
-                # mentions of weapons / military / political figures), 422'ing
-                # only that scene. Don't lose the 6 other paid clips — fall
-                # back to a silent placeholder so stitch still produces a
-                # cohesive episode.
+                # Single-scene fault isolation. Most common cause: the ARK
+                # content moderator flags one synthesized-audio clip as
+                # sensitive (e.g. mentions of weapons / military / political
+                # figures), failing only that scene. Don't lose the 6 other
+                # paid clips — fall back to a silent placeholder so stitch
+                # still produces a cohesive episode.
                 log.warning(
                     "Scene %d (%s) failed: %s — using silent placeholder",
                     i, scene.get("title", "?"), str(exc)[:300],

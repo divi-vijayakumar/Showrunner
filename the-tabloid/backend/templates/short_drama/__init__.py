@@ -2,7 +2,7 @@
 Pixar-stylized 2-min film with native Tamil/English audio.
 
 Pipeline:
-  1. stylize.pixarify_characters → Pixar-styled character anchors (Fal Seedream edit i2i)
+  1. stylize.pixarify_characters → Pixar-styled character anchors (ARK Seedream edit i2i)
   2. set_designer.generate_set_masters → Pixar-styled set stills (ARK Seedream t2i)
   3. writer.scene_plan_from_brief → typed scene plan (Seed LLM)
   4. director.render_clip per scene → Seedance 2.0 with native audio (ARK direct, 4-key pool)

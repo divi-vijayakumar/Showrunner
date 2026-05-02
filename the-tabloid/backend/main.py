@@ -496,7 +496,7 @@ async def stitch_segment_endpoint(segment_id: str) -> dict[str, Any]:
 async def get_segment_scene(segment_id: str, scene_number: str):
     """Serve a locally-cached scene mp4 for a direct-mode segment. Stable
     URL so the player + manifest both reference it without depending on
-    Fal CDN expiry."""
+    Seedance's CDN expiry."""
     if (
         not segment_id or any(c in segment_id for c in "/\\.")
         or not scene_number or any(c in scene_number for c in "/\\.")

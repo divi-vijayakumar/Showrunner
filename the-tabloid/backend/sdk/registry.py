@@ -30,8 +30,9 @@ from .types import (
 
 @dataclass
 class AssetRecord:
-    """One asset's metadata. The actual bytes live elsewhere (Fal CDN, local
-    disk under data/, Firebase Storage). The registry just indexes them.
+    """One asset's metadata. The actual bytes live elsewhere (Seedance CDN,
+    Seedream CDN, local disk under data/, Firebase Storage). The registry
+    just indexes them.
 
     `version` bumps on every regeneration; `compatible_with` lists asset
     IDs this asset is known-good with (e.g. a character sheet is compatible

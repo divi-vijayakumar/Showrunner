@@ -1,6 +1,6 @@
 """Set anchors for short_drama.
 
-Two paths, both Fal-free (per product-demo-studio pattern):
+Two paths (per product-demo-studio pattern):
 
   - Uploaded set photos: read from disk → base64 data URL (Seedance embeds it
     inline as reference_image). Pixar re-rendering happens via the prompt's

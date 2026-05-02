@@ -4,8 +4,8 @@ Real Seedance 2.0 is async — you POST a task to `/contents/generations/tasks`
 and poll until it succeeds. Takes ~60-90s per 5s clip. Model ID + URL come
 from the BytePlus ARK console.
 
-In mock mode we return a locally-generated 5s black clip so the pipeline
-stays self-contained.
+The mock provider produces a locally-generated 5s black clip so the pipeline
+stays self-contained when no real API key is available.
 """
 from __future__ import annotations
 
@@ -262,13 +262,11 @@ async def generate_seedance_clip(
     duration: int = 5,
     aspect_ratio: str = "9:16",
     resolution: str = "1080p",
-    model: str = "",
     first_frame_image: str | None = None,
     last_frame_image: str | None = None,
     reference_image: str | None = None,
     reference_images: list[str] | None = None,
     seed: int | None = None,
-    model_override: str | None = None,
     end_image_url: str | None = None,
     generate_audio: bool = False,
     provider_override: str | None = None,
@@ -282,9 +280,9 @@ async def generate_seedance_clip(
     as `role: "reference_image"` so cast/wardrobe/set stay consistent across
     every scene of the episode.
     """
-    # provider_override lets short_drama force the ARK direct path
-    # regardless of the global VIDEO_PROVIDER (which currently points at
-    # Fal for panel_debate). Pass "byteplus" to use ARK direct.
+    # provider_override exists so a caller can force the mock path inside a
+    # real run (e.g. for a single-scene smoke test); production code leaves
+    # it alone and lets the global VIDEO_PROVIDER decide.
     provider = (provider_override or settings().video_provider).lower()
     if settings().mock or provider == "mock":
         log.info(
@@ -296,24 +294,9 @@ async def generate_seedance_clip(
             prompt[:120],
         )
         return _ensure_mock_clip()
-    if provider == "fal":
-        from .fal import generate_fal_video
-        # Bake camera + composition into the prompt since the Fal models
-        # don't expose a separate camera-motion field.
-        rich_prompt = (
-            f"{prompt.strip()} "
-            f"{_motion_directive(camera_motion)} "
-            f"Aspect ratio: {aspect_ratio}. Broadcast-polished composition."
-        )
-        return await generate_fal_video(
-            rich_prompt,
-            duration_s=duration,
-            first_frame_image=first_frame_image,
-            seed=seed,
-            aspect_ratio=aspect_ratio,
-            model_override=model_override,
-            end_image_url=end_image_url,
-        )
+
+    # `end_image_url` is the legacy name for last_frame_image; honor either.
+    last_frame_image = last_frame_image or end_image_url
 
     # Fold camera motion and resolution into the text prompt since ARK's
     # Seedance only takes `ratio` + `duration` + `content` natively.

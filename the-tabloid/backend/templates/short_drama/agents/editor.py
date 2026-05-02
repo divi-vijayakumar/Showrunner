@@ -263,25 +263,14 @@ async def stitch_film(
     )
 
     # Outro card (optional)
-    if outro_card and outro_card.get("text"):
-        card_path = os.path.join(work, "outro_card.mp4")
-        card_dur = max(4.0, float(outro_card.get("duration_s", 4.0)))
-        _render_outro_card(
-            outro_card["text"],
-            card_dur,
-            target_width, target_height, target_fps,
-            card_path,
-        )
-        final = os.path.join(work, "final.mp4")
-        _concat([with_music, card_path], final)
-        log.info(
-            "drama editor: final film %.1fs (with %d clips + outro card)",
-            probe_duration(final), len(local_clips),
-        )
-        return final
-
+    # The synthesized outro card was removed — ffmpeg drawtext animations
+    # were the part of the pipeline that kept failing. The writer is now
+    # told to make the FINAL scene be the title beat (a real Seedance clip
+    # with the title appearing in-world), so by the time we get here every
+    # clip is just another clip and the editor never touches drawtext.
+    _ = outro_card  # kept in signature for caller back-compat
     log.info(
-        "drama editor: final film %.1fs (with %d clips, no outro card)",
+        "drama editor: final film %.1fs (with %d clips)",
         probe_duration(with_music), len(local_clips),
     )
     return with_music
