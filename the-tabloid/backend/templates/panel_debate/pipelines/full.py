@@ -215,7 +215,7 @@ async def _generate(
         # 4b. Stage assets — locked master wide + per-panelist MCUs from
         # Seedream, plus persona portraits for any non-stage uses. Skipped
         # entirely on text-to-video; identity travels through the prompt then.
-        is_t2v = "text-to-video" in settings().fal_video_model
+        is_t2v = settings().text_to_video
         if is_t2v:
             log.info("text-to-video mode — skipping stage frame generation")
             portraits_by_persona = {}
@@ -405,7 +405,17 @@ async def _generate(
         for vo in script.get("vo_script", []):
             vo_by_scene[int(vo.get("scene_index", -1))] = vo
 
-        native_audio = settings().video_provider == "fal" and "seedance" in settings().fal_video_model
+        # Seedance 2.0 produces synchronized lip-synced audio when
+        # generate_audio=true, on either the Fal or BytePlus ARK path. When
+        # native_audio is True we skip the separate Seed Speech TTS step and
+        # let the video model speak the SPOKEN LINE block directly.
+        native_audio = (
+            settings().video_provider == "byteplus"
+            or (
+                settings().video_provider == "fal"
+                and "seedance" in settings().fal_video_model
+            )
+        )
 
         clip_urls: list[str] = []
         scenes = script["scenes"]
@@ -471,6 +481,7 @@ async def _generate(
                     first_frame_image=first_frame,
                     reference_image=master_stage_url if not is_t2v else None,
                     seed=_seed_for(persona_id or anchor_id),
+                    generate_audio=native_audio,
                 )
             except Exception as exc:
                 # Single-scene fault isolation. Most common cause: Fal's content

@@ -14,8 +14,9 @@ from typing import Any
 
 import asyncio
 import os
+import uuid
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -766,3 +767,362 @@ async def get_image(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="image not found")
     return FileResponse(path, media_type="image/png", filename=filename)
+
+
+# -- Short Drama template ----------------------------------------------------
+#
+# Sibling pipeline to panel_debate. Chat-style brief + uploaded character/set
+# photos → Pixar-stylized 2-min film with native Tamil/English audio.
+#
+# Routes:
+#   POST /api/drama/upload   — multipart photo upload, returns {asset_id}
+#   POST /api/drama/generate — kick off the pipeline against a draft brief
+#   GET  /api/drama/assets/{asset_id}.{ext} — serve uploaded photos
+# Existing /api/segment/{id} polling and /api/videos/{id}.mp4 streaming are
+# reused unchanged.
+
+
+_DRAMA_ASSETS_DIR = os.path.join(
+    os.path.abspath(os.path.expanduser(settings().tabloid_data_dir)),
+    "drama_assets",
+)
+
+
+def _ext_from_mime(mime: str | None, filename: str | None) -> str:
+    if mime == "image/jpeg" or (filename and filename.lower().endswith((".jpg", ".jpeg"))):
+        return "jpg"
+    if mime == "image/png" or (filename and filename.lower().endswith(".png")):
+        return "png"
+    if mime == "image/webp" or (filename and filename.lower().endswith(".webp")):
+        return "webp"
+    raise HTTPException(status_code=400, detail=f"unsupported image type: {mime}")
+
+
+def _meta_path_for(asset_id: str) -> str:
+    return os.path.join(_DRAMA_ASSETS_DIR, f"{asset_id}.meta.json")
+
+
+@app.post("/api/drama/upload")
+async def drama_upload(
+    file: UploadFile = File(...),
+    label: str = Form(...),
+    kind: str = Form("character"),  # "character" | "set"
+    description: str = Form(""),
+) -> dict[str, Any]:
+    """Accept one image + a label. Stores under data/drama_assets/ and returns
+    an asset_id the frontend can attach to the next /generate call.
+
+    Sidecar `<asset_id>.meta.json` persists label/kind/description so the
+    /api/drama/recent-assets endpoint can rehydrate the page after a reload
+    without forcing the user to re-upload + re-label."""
+    if kind not in ("character", "set"):
+        raise HTTPException(status_code=400, detail="kind must be 'character' or 'set'")
+    if not label.strip():
+        raise HTTPException(status_code=400, detail="label is required")
+
+    ext = _ext_from_mime(file.content_type, file.filename)
+    asset_id = f"asset_{uuid.uuid4().hex[:10]}"
+    os.makedirs(_DRAMA_ASSETS_DIR, exist_ok=True)
+    fname = f"{asset_id}.{ext}"
+    dest = os.path.join(_DRAMA_ASSETS_DIR, fname)
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="empty upload")
+    with open(dest, "wb") as f:
+        f.write(contents)
+
+    import json as _json
+    import time as _time
+    meta = {
+        "asset_id": asset_id,
+        "label": label.strip(),
+        "kind": kind,
+        "description": description.strip(),
+        "filename": fname,
+        "uploaded_at": _time.time(),
+    }
+    with open(_meta_path_for(asset_id), "w") as f:
+        _json.dump(meta, f)
+
+    base = settings().public_base_url.rstrip("/")
+    return {
+        **meta,
+        "url": f"{base}/api/drama/assets/{fname}",
+        "size_bytes": len(contents),
+    }
+
+
+@app.get("/api/drama/recent-assets")
+async def drama_recent_assets(limit: int = 50) -> dict[str, Any]:
+    """List all uploaded drama assets, newest first. Used by the Drama page
+    to pre-populate after a browser reload — no need to re-upload+re-label.
+
+    Assets without a sidecar `.meta.json` still appear (the inferred label
+    is the asset_id itself) so the user can rename them in the UI."""
+    if not os.path.isdir(_DRAMA_ASSETS_DIR):
+        return {"assets": []}
+    import json as _json
+    out: list[dict[str, Any]] = []
+    base = settings().public_base_url.rstrip("/")
+    for fname in os.listdir(_DRAMA_ASSETS_DIR):
+        if fname.endswith(".meta.json") or fname.startswith("."):
+            continue
+        if not fname.startswith("asset_"):
+            continue
+        asset_id, _, ext = fname.rpartition(".")
+        if ext.lower() not in ("jpg", "jpeg", "png", "webp"):
+            continue
+        meta_path = _meta_path_for(asset_id)
+        meta: dict[str, Any] = {}
+        if os.path.exists(meta_path):
+            try:
+                meta = _json.loads(open(meta_path).read())
+            except Exception:
+                meta = {}
+        try:
+            mtime = os.path.getmtime(os.path.join(_DRAMA_ASSETS_DIR, fname))
+        except OSError:
+            mtime = 0.0
+        out.append({
+            "asset_id": asset_id,
+            "label": meta.get("label") or asset_id,
+            "kind": meta.get("kind") or "character",
+            "description": meta.get("description") or "",
+            "filename": fname,
+            "url": f"{base}/api/drama/assets/{fname}",
+            "uploaded_at": meta.get("uploaded_at") or mtime,
+            "has_label": bool(meta.get("label")),
+        })
+    out.sort(key=lambda r: r.get("uploaded_at") or 0, reverse=True)
+    return {"assets": out[:limit]}
+
+
+@app.post("/api/drama/asset/{asset_id}/label")
+async def drama_set_asset_label(asset_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Rename an existing asset in-place (sidecar update only). Used when the
+    user re-attaches labels to assets loaded via /recent-assets."""
+    if not asset_id or any(c in asset_id for c in "/\\.") or not asset_id.startswith("asset_"):
+        raise HTTPException(status_code=400, detail="bad asset_id")
+    label = (body.get("label") or "").strip()
+    kind = body.get("kind") or "character"
+    description = (body.get("description") or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label is required")
+    if kind not in ("character", "set"):
+        raise HTTPException(status_code=400, detail="kind must be 'character' or 'set'")
+    # Find the file
+    for ext in ("jpg", "jpeg", "png", "webp"):
+        if os.path.exists(os.path.join(_DRAMA_ASSETS_DIR, f"{asset_id}.{ext}")):
+            break
+    else:
+        raise HTTPException(status_code=404, detail="asset not found")
+    import json as _json
+    meta_path = _meta_path_for(asset_id)
+    existing = {}
+    if os.path.exists(meta_path):
+        try:
+            existing = _json.loads(open(meta_path).read())
+        except Exception:
+            existing = {}
+    existing.update({
+        "asset_id": asset_id,
+        "label": label,
+        "kind": kind,
+        "description": description,
+    })
+    with open(meta_path, "w") as f:
+        _json.dump(existing, f)
+    return {"ok": True, **existing}
+
+
+@app.get("/api/drama/assets/{filename}")
+async def drama_asset(filename: str):
+    """Serve an uploaded drama asset back to the frontend (preview tile)."""
+    if not filename or any(c in filename for c in "/\\") or ".." in filename:
+        raise HTTPException(status_code=400, detail="bad filename")
+    path = os.path.join(_DRAMA_ASSETS_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="asset not found")
+    if filename.endswith(".png"):
+        media = "image/png"
+    elif filename.endswith(".webp"):
+        media = "image/webp"
+    else:
+        media = "image/jpeg"
+    return FileResponse(path, media_type=media, filename=filename)
+
+
+class DramaAssetRef(BaseModel):
+    asset_id: str
+    label: str
+    description: str = ""
+
+
+class DramaGenerateRequest(BaseModel):
+    beat_sheet: str
+    title: str = "Short Drama"
+    default_language: str = "tamil"  # "tamil" | "english"
+    characters: list[DramaAssetRef] = []
+    sets: list[DramaAssetRef] = []
+
+
+def _resolve_drama_asset(asset_id: str) -> str:
+    """Map an asset_id back to its local file path. Looks for any extension
+    the upload route accepts."""
+    if not asset_id or any(c in asset_id for c in "/\\.") or not asset_id.startswith("asset_"):
+        raise HTTPException(status_code=400, detail=f"bad asset_id: {asset_id}")
+    for ext in ("jpg", "jpeg", "png", "webp"):
+        path = os.path.join(_DRAMA_ASSETS_DIR, f"{asset_id}.{ext}")
+        if os.path.exists(path):
+            return path
+    raise HTTPException(status_code=404, detail=f"asset not found: {asset_id}")
+
+
+@app.post("/api/drama/generate", response_model=GenerateResponse)
+async def drama_generate(
+    background_tasks: BackgroundTasks,
+    body: DramaGenerateRequest,
+) -> GenerateResponse:
+    """Kick off the short_drama pipeline. Reuses the segment doc store so
+    Player.tsx + History.tsx render this segment unchanged."""
+    if not body.beat_sheet.strip():
+        raise HTTPException(status_code=400, detail="beat_sheet is required")
+    lang = body.default_language.lower()
+    if lang not in ("tamil", "english"):
+        raise HTTPException(status_code=400, detail="default_language must be 'tamil' or 'english'")
+
+    # Resolve every uploaded asset to a local path BEFORE we kick off the
+    # background task, so 4xx errors come back to the user inline instead of
+    # ending up buried in the segment doc.
+    characters = [
+        {
+            "id": c.asset_id,
+            "label": c.label,
+            "description": c.description,
+            "local_path": _resolve_drama_asset(c.asset_id),
+        }
+        for c in body.characters
+    ]
+    sets = [
+        {
+            "id": s.asset_id,
+            "label": s.label,
+            "description": s.description,
+            "local_path": _resolve_drama_asset(s.asset_id),
+        }
+        for s in body.sets
+    ]
+
+    db = FirestoreClient()
+    # Reuse the existing segment store. Channel field is just a categorical
+    # tag for History — the pipeline doesn't read it.
+    segment_id = await db.create_segment("short_drama")
+    await db.update_segment(
+        segment_id,
+        {
+            "mode": "short_drama",
+            "template": "short_drama",
+            "headline": body.title.strip() or "Short Drama",
+        },
+    )
+
+    from .templates.short_drama import generate_drama as run_drama_async
+
+    background_tasks.add_task(
+        lambda: asyncio.run(run_drama_async(
+            segment_id,
+            beat_sheet=body.beat_sheet,
+            characters=characters,
+            sets=sets,
+            default_language=lang,
+            title=body.title.strip() or "Short Drama",
+        ))
+    )
+    return GenerateResponse(segment_id=segment_id)
+
+
+class DramaRestitchRequest(BaseModel):
+    """Re-run ONLY the editing/stitch stage against an explicit list of
+    clip URLs. Use after a previous run failed in stitch (e.g. ffmpeg
+    audio-stream mismatch) so we don't have to re-pay for Seedance clips."""
+    clip_urls: list[str]
+    title: str = "Short Drama"
+    outro_card: dict[str, Any] | None = None
+
+
+@app.post("/api/drama/restitch", response_model=GenerateResponse)
+async def drama_restitch(
+    background_tasks: BackgroundTasks,
+    body: DramaRestitchRequest,
+) -> GenerateResponse:
+    """Stitch the supplied clip URLs into a final film using the short_drama
+    editor (xfade blend + outro card + watermark). Skips Script/Casting/
+    Direction/Production entirely. Useful when those stages succeeded and
+    only Editing failed."""
+    if not body.clip_urls:
+        raise HTTPException(status_code=400, detail="clip_urls is required")
+
+    db = FirestoreClient()
+    segment_id = await db.create_segment("short_drama")
+    await db.update_segment(
+        segment_id,
+        {
+            "mode": "short_drama_restitch",
+            "template": "short_drama",
+            "headline": (body.title.strip() or "Short Drama") + " (restitch)",
+            "clip_urls": body.clip_urls,
+            "scene_plan": {"outro_card": body.outro_card},
+            "status": "stitching",
+            "progress": 90,
+        },
+    )
+
+    from .templates.short_drama.agents.editor import stitch_film as _stitch
+
+    async def _run() -> None:
+        try:
+            repo_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..")
+            )
+            outro_music = os.path.join(repo_root, "data", "audio", "outro.mp3")
+            if not os.path.exists(outro_music):
+                outro_music = None
+            final_path = await _stitch(
+                body.clip_urls,
+                outro_card=body.outro_card,
+                outro_music_path=outro_music,
+            )
+            video_url = await db.upload_video(final_path, segment_id)
+            await db.update_segment(
+                segment_id,
+                {
+                    "status": "ready",
+                    "progress": 100,
+                    "video_url": video_url,
+                    "media_url": video_url,
+                    "media_kind": "video",
+                },
+            )
+        except Exception as exc:
+            log.exception("restitch failed for segment %s", segment_id)
+            await db.update_segment(
+                segment_id,
+                {"status": "failed", "error": str(exc)[:500]},
+            )
+
+    background_tasks.add_task(lambda: asyncio.run(_run()))
+    return GenerateResponse(segment_id=segment_id)
+
+
+@app.post("/api/drama/cancel/{segment_id}")
+async def drama_cancel(segment_id: str) -> dict[str, Any]:
+    """Mark this short_drama segment as cancelled. The pipeline checks the
+    flag at every stage boundary + before each scene's Seedance call and
+    bails out cleanly (status=cancelled). Already-issued ARK tasks finish
+    on their own — we don't poll/use them after cancellation."""
+    if not segment_id or any(c in segment_id for c in "/\\."):
+        raise HTTPException(status_code=400, detail="bad segment id")
+    from .templates.short_drama.pipeline import cancel_segment
+    newly = cancel_segment(segment_id)
+    return {"segment_id": segment_id, "cancelled": True, "newly_cancelled": newly}

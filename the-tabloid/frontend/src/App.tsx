@@ -1,10 +1,12 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChannelSelect } from './pages/ChannelSelect'
 import { StoryPicker } from './pages/StoryPicker'
 import { PersonaSelect } from './pages/PersonaSelect'
 import { Debate } from './pages/Debate'
 import { Player } from './pages/Player'
 import { History } from './pages/History'
+import { Drama } from './pages/Drama'
+import { DramaProgress } from './pages/DramaProgress'
 import { fetchChannels, startSegment } from './api'
 import type {
   ChannelId,
@@ -22,6 +24,8 @@ type View =
   | { name: 'persona_select'; channel: ChannelInfo; story: StoryCandidate | null }
   | { name: 'debate'; channel: ChannelInfo; segmentId: string }
   | { name: 'player'; channel: ChannelInfo; segment: Segment }
+  | { name: 'drama' }
+  | { name: 'drama_progress'; segmentId: string }
 
 export default function App() {
   const [view, setView] = useState<View>({ name: 'channel_select' })
@@ -31,6 +35,18 @@ export default function App() {
 
   const goHome = useCallback(() => setView({ name: 'channel_select' }), [])
 
+  // Hash-based deep link to /drama so the user can land directly on the
+  // short-drama UI without going through ChannelSelect. Anything else
+  // routes through the normal panel_debate flow.
+  useEffect(() => {
+    const apply = () => {
+      if (window.location.hash === '#/drama') setView({ name: 'drama' })
+    }
+    apply()
+    window.addEventListener('hashchange', apply)
+    return () => window.removeEventListener('hashchange', apply)
+  }, [])
+
   switch (view.name) {
     case 'channel_select':
       return (
@@ -39,6 +55,31 @@ export default function App() {
           onModeChange={setMode}
           onPick={(ch) => setView({ name: 'story_picker', channel: ch })}
           onShowHistory={() => setView({ name: 'history' })}
+          onShowDrama={() => {
+            window.location.hash = '#/drama'
+            setView({ name: 'drama' })
+          }}
+        />
+      )
+
+    case 'drama':
+      return (
+        <Drama
+          onBack={() => {
+            window.location.hash = ''
+            goHome()
+          }}
+          onStart={(segmentId) =>
+            setView({ name: 'drama_progress', segmentId })
+          }
+        />
+      )
+
+    case 'drama_progress':
+      return (
+        <DramaProgress
+          segmentId={view.segmentId}
+          onBack={() => setView({ name: 'drama' })}
         />
       )
 

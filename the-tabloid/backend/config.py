@@ -11,7 +11,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load backend/.env relative to this file so config works regardless of the
+# cwd uvicorn / pytest / scripts were launched from. cwd-only loading was
+# silently producing all-default settings when run from the project root.
+_BACKEND_DOTENV = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(_BACKEND_DOTENV):
+    load_dotenv(_BACKEND_DOTENV)
+else:
+    load_dotenv()
 
 
 def _env(key: str, default: str = "") -> str:
@@ -30,7 +37,20 @@ class Settings:
     # BytePlus ModelArk — one base URL hosts Seed (LLM), Seedance (video),
     # Seedream (image). The region-specific host matters; pick AP-Southeast
     # unless your key was provisioned elsewhere.
-    byteplus_api_key: str = _env("BYTEPLUS_API_KEY") or _env("ARK_API_KEY")
+    # ARK is case-sensitive on hex chars in the key — uppercase letters get
+    # rejected with a misleading "API key format is incorrect" 401. Normalize
+    # to lowercase here so a copy-paste with a stray capital doesn't break.
+    byteplus_api_key: str = (_env("BYTEPLUS_API_KEY") or _env("ARK_API_KEY")).lower()
+    # Optional comma-separated key pool for parallel Seedance generation.
+    # When set, the seedance provider rotates through these round-robin so
+    # an 8-scene drama can spread its create-task calls across keys instead
+    # of serializing on one key's rate limit. Falls back to byteplus_api_key
+    # when unset so panel_debate's existing single-key flow is unaffected.
+    byteplus_api_keys: list[str] = [
+        k.strip().lower()
+        for k in (_env("BYTEPLUS_API_KEYS") or "").split(",")
+        if k.strip()
+    ]
     ark_base_url: str = _env("ARK_BASE_URL") or _env(
         "BYTEPLUS_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"
     )
@@ -95,6 +115,13 @@ class Settings:
     video_provider: str = _env("VIDEO_PROVIDER", "byteplus").lower()
     image_provider: str = _env("IMAGE_PROVIDER", "byteplus").lower()
 
+    # Pipeline knob: render every panel_debate scene as text-to-video instead
+    # of i2v from a Seedream-anchored frame. Defaults True because t2v gives
+    # stronger panel-cast consistency on Seedance 2.0 (verified empirically)
+    # and sidesteps the Seedance i2v moderator's photoreal-likeness rejection.
+    # Provider-agnostic — applies to both Fal and BytePlus video paths.
+    text_to_video: bool = _bool("VIDEO_TEXT_TO_VIDEO", True)
+
     # Fallback provider creds (set the ones you're actually using)
     elevenlabs_api_key: str = _env("ELEVENLABS_API_KEY")
     elevenlabs_model: str = _env("ELEVENLABS_MODEL", "eleven_multilingual_v2")
@@ -114,6 +141,12 @@ class Settings:
 
     # Dev
     mock: bool = _bool("TABLOID_MOCK", False)
+    # Hard skip of firebase-admin init. Use when ADC creds have expired and
+    # `gcloud auth application-default login` isn't an option (live demo).
+    # Pipeline runs against the in-memory mock store — frontend polls
+    # /api/segment which serves from the mock. Restarting uvicorn loses
+    # in-flight segments; that's the only downside.
+    skip_firestore: bool = _bool("TABLOID_SKIP_FIRESTORE", False)
 
 
 @lru_cache(maxsize=1)

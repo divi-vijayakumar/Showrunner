@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -184,4 +185,65 @@ async def generate_fal_image(
     url = images[0].get("url") if isinstance(images[0], dict) else None
     if not url:
         raise RuntimeError(f"Fal Flux image shape unexpected: {images[0]}")
+    return url
+
+
+# -- Seedream v4.5 edit (i2i) ------------------------------------------------
+
+SEEDREAM_EDIT_MODEL = "fal-ai/bytedance/seedream/v4.5/edit"
+
+
+async def upload_to_fal(local_path: str) -> str:
+    """Push a local file into Fal storage and return a public URL the
+    Seedream / Seedance APIs can fetch server-side.
+
+    Cached against the file path — repeat uploads of the same drama asset
+    return the same Fal URL so we don't blow $0.001 per re-upload."""
+    cache = local_path + ".fal_url.txt"
+    if os.path.exists(cache):
+        cached = open(cache).read().strip()
+        if cached.startswith("http"):
+            return cached
+    if not settings().fal_api_key:
+        raise RuntimeError("upload_to_fal called but FAL_KEY is unset")
+    os.environ.setdefault("FAL_KEY", settings().fal_api_key)
+    import fal_client  # type: ignore
+    url = await asyncio.to_thread(fal_client.upload_file, local_path)
+    with open(cache, "w") as f:
+        f.write(url)
+    return url
+
+
+async def seedream_edit(
+    image_urls: list[str],
+    prompt: str,
+) -> str:
+    """Call Fal Seedream v4.5 edit (image-to-image). Returns the URL of the
+    edited image. Used by short_drama to Pixarify uploaded character photos.
+
+    Pattern matches scripts/test_endpoint_locked_scene2.py — subscribe
+    synchronously via fal_client and pull the first image. Done in a worker
+    thread so we don't block the asyncio loop."""
+    if not settings().fal_api_key:
+        raise RuntimeError("seedream_edit called but FAL_KEY is unset")
+    os.environ.setdefault("FAL_KEY", settings().fal_api_key)
+    import fal_client  # type: ignore
+
+    result = await asyncio.to_thread(
+        fal_client.subscribe,
+        SEEDREAM_EDIT_MODEL,
+        arguments={
+            "image_urls": image_urls,
+            "prompt": prompt,
+            "num_images": 1,
+            "enable_safety_checker": True,
+        },
+    )
+    images = result.get("images") or []
+    if not images:
+        raise RuntimeError(f"Seedream edit returned no images: {result}")
+    first = images[0]
+    url = first.get("url") if isinstance(first, dict) else None
+    if not url:
+        raise RuntimeError(f"Seedream edit image shape unexpected: {first}")
     return url

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import itertools
 import logging
 import os
 import subprocess
+import threading
 from typing import Any
 
 import httpx
@@ -24,6 +26,27 @@ log = logging.getLogger(__name__)
 
 
 _MOCK_DIR = "/tmp/tabloid_mock_clips"
+
+# Round-robin pool over BYTEPLUS_API_KEYS so multi-scene dramas spread their
+# create-task calls across keys. Lock-guarded — asyncio tasks run on one event
+# loop in the same thread, but the celery worker may also call this from a
+# different thread context, and two atomic next() calls collide cleanly.
+_KEY_CYCLE = None
+_KEY_LOCK = threading.Lock()
+
+
+def _next_byteplus_key() -> str:
+    """Return the next BytePlus key from the rotation pool, or the single
+    BYTEPLUS_API_KEY when no pool is configured. Rebuilt on first use so test
+    code can monkeypatch settings() before any clip is generated."""
+    global _KEY_CYCLE
+    pool = settings().byteplus_api_keys
+    if not pool:
+        return settings().byteplus_api_key
+    with _KEY_LOCK:
+        if _KEY_CYCLE is None:
+            _KEY_CYCLE = itertools.cycle(pool)
+        return next(_KEY_CYCLE)
 
 
 class CameraMotion(str, enum.Enum):
@@ -68,7 +91,10 @@ def _motion_directive(motion: str) -> str:
 
 
 def _ensure_mock_clip() -> str:
-    """Tiny 5s black 1080x1920 clip for offline dev, generated once."""
+    """Tiny 5s black 1080x1920 clip with SILENT audio stream — used as a
+    fault-isolation placeholder when one Seedance scene fails. Must include
+    an audio track because the editor's xfade pass acrossfades audio across
+    every clip; a clip with no audio stream breaks the chain (exit 234)."""
     os.makedirs(_MOCK_DIR, exist_ok=True)
     path = os.path.join(_MOCK_DIR, "seedance_mock.mp4")
     if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -78,7 +104,11 @@ def _ensure_mock_clip() -> str:
             [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", "color=c=0x1a1a1f:s=1080x1920:d=5:r=30",
+                "-f", "lavfi", "-t", "5",
+                "-i", "anullsrc=r=48000:cl=stereo",
+                "-shortest",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
                 path,
             ],
             check=True,
@@ -99,9 +129,9 @@ def _clamp_seedance_duration(secs: int) -> int:
     return 15
 
 
-def _auth_headers() -> dict[str, str]:
+def _auth_headers(api_key: str | None = None) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {settings().byteplus_api_key}",
+        "Authorization": f"Bearer {api_key or settings().byteplus_api_key}",
         "Content-Type": "application/json",
     }
 
@@ -113,45 +143,71 @@ async def _create_task(
     duration: int,
     aspect_ratio: str,
     first_frame_image: str | None,
+    last_frame_image: str | None = None,
     reference_image: str | None = None,
+    reference_images: list[str] | None = None,
+    generate_audio: bool = False,
+    api_key: str | None = None,
 ) -> str:
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-    if first_frame_image and not first_frame_image.startswith("file://"):
-        # Seedance fetches the image server-side, so it must be a public URL.
-        content.append(
-            {
+    # New ARK API mutual exclusion: `last_frame image content cannot be mixed
+    # with first frame or reference image content`. So we have two modes:
+    #   - Endpoint-locked: first_frame + last_frame (chained-keyframe path)
+    #   - Multi-reference: reference_image[] (free-floating cast/set refs)
+    # If both are supplied, endpoint-locked wins because it gives stronger
+    # continuity (showrunner pattern).
+    use_endpoint_lock = bool(
+        first_frame_image and not first_frame_image.startswith("file://")
+        and last_frame_image and not last_frame_image.startswith("file://")
+    )
+    if use_endpoint_lock:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": first_frame_image},
+            "role": "first_frame",
+        })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": last_frame_image},
+            "role": "last_frame",
+        })
+    else:
+        refs: list[str] = []
+        if reference_images:
+            refs.extend(
+                r for r in reference_images if r and not r.startswith("file://")
+            )
+        if reference_image and not reference_image.startswith("file://"):
+            refs.append(reference_image)
+        if refs:
+            for r in refs[:9]:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": r},
+                    "role": "reference_image",
+                })
+        elif first_frame_image and not first_frame_image.startswith("file://"):
+            content.append({
                 "type": "image_url",
                 "image_url": {"url": first_frame_image},
                 "role": "first_frame",
-            }
-        )
-    if reference_image and not reference_image.startswith("file://"):
-        # Master-stage subject reference. Seedance 2.0 is documented to accept
-        # `first_frame` + `reference_image` in the same request — the reference
-        # locks cast/wardrobe/set across all 7 scenes while the first_frame
-        # pins each clip's opening composition. If the endpoint silently
-        # ignores this role we still get the first_frame pin (no harm). If it
-        # 422s we fall back at the call site.
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": reference_image},
-                "role": "reference_image",
-            }
-        )
+            })
 
     payload = {
         "model": settings().seedance_model,
         "content": content,
         "ratio": aspect_ratio,
         "duration": duration,
-        "generate_audio": False,  # we overlay Seed Speech VO in ffmpeg
+        # When False, callers overlay Seed Speech VO in ffmpeg. When True
+        # (short_drama path), Seedance produces native lip-synced audio from
+        # the SPOKEN LINE block in the prompt — no separate TTS step.
+        "generate_audio": generate_audio,
         "watermark": False,
     }
     base = settings().byteplus_base_url.rstrip("/")
     resp = await client.post(
         f"{base}/contents/generations/tasks",
-        headers=_auth_headers(),
+        headers=_auth_headers(api_key),
         json=payload,
     )
     if resp.status_code >= 400:
@@ -164,13 +220,17 @@ async def _create_task(
     return task_id
 
 
-async def _poll_task(client: httpx.AsyncClient, task_id: str) -> dict[str, Any]:
+async def _poll_task(
+    client: httpx.AsyncClient, task_id: str, *, api_key: str | None = None
+) -> dict[str, Any]:
     base = settings().byteplus_base_url.rstrip("/")
     url = f"{base}/contents/generations/tasks/{task_id}"
-    deadline = asyncio.get_event_loop().time() + 4 * 60  # 4 min
+    # 6 min — multi-reference + generate_audio runs longer than the t2v
+    # path. product-demo-studio uses 5 min for its single-image case.
+    deadline = asyncio.get_event_loop().time() + 6 * 60
     delay = 3.0
     while asyncio.get_event_loop().time() < deadline:
-        resp = await client.get(url, headers=_auth_headers())
+        resp = await client.get(url, headers=_auth_headers(api_key))
         if resp.status_code >= 400:
             log.error("Seedance poll %s: %s", resp.status_code, resp.text[:400])
             resp.raise_for_status()
@@ -204,10 +264,14 @@ async def generate_seedance_clip(
     resolution: str = "1080p",
     model: str = "",
     first_frame_image: str | None = None,
+    last_frame_image: str | None = None,
     reference_image: str | None = None,
+    reference_images: list[str] | None = None,
     seed: int | None = None,
     model_override: str | None = None,
     end_image_url: str | None = None,
+    generate_audio: bool = False,
+    provider_override: str | None = None,
 ) -> str:
     """Generate one Seedance clip. Returns a URL to the finished mp4.
 
@@ -218,7 +282,10 @@ async def generate_seedance_clip(
     as `role: "reference_image"` so cast/wardrobe/set stay consistent across
     every scene of the episode.
     """
-    provider = settings().video_provider
+    # provider_override lets short_drama force the ARK direct path
+    # regardless of the global VIDEO_PROVIDER (which currently points at
+    # Fal for panel_debate). Pass "byteplus" to use ARK direct.
+    provider = (provider_override or settings().video_provider).lower()
     if settings().mock or provider == "mock":
         log.info(
             "MOCK Seedance request — motion=%s ratio=%s ref=%s stage=%s prompt=%s",
@@ -257,36 +324,62 @@ async def generate_seedance_clip(
     )
     duration = _clamp_seedance_duration(duration)
 
+    api_key = _next_byteplus_key()
+
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        try:
-            task_id = await _create_task(
+        async def _try_create(
+            *, refs: bool, audio: bool
+        ) -> str:
+            return await _create_task(
                 client,
                 rich_prompt,
                 duration=duration,
                 aspect_ratio=aspect_ratio,
-                first_frame_image=first_frame_image,
-                reference_image=reference_image,
+                first_frame_image=first_frame_image if refs else None,
+                last_frame_image=last_frame_image if refs else None,
+                reference_image=reference_image if refs else None,
+                reference_images=reference_images if refs else None,
+                generate_audio=audio,
+                api_key=api_key,
             )
+
+        try:
+            task_id = await _try_create(refs=True, audio=generate_audio)
         except httpx.HTTPStatusError as exc:
-            # If BytePlus rejects the dual-image payload (unknown role), retry
-            # with first_frame only. Cheaper than failing the clip outright.
-            if reference_image and exc.response.status_code in (400, 422):
+            had_images = bool(
+                reference_image or reference_images
+                or first_frame_image or last_frame_image
+            )
+            if had_images and exc.response.status_code in (400, 422):
                 log.warning(
-                    "Seedance 422 with reference_image — retrying without it: %s",
+                    "Seedance 4xx with images — retrying text-only: %s",
                     exc.response.text[:200],
                 )
-                task_id = await _create_task(
-                    client,
-                    rich_prompt,
-                    duration=duration,
-                    aspect_ratio=aspect_ratio,
-                    first_frame_image=first_frame_image,
-                    reference_image=None,
-                )
+                task_id = await _try_create(refs=False, audio=generate_audio)
             else:
                 raise
-        log.info("Seedance task created: %s", task_id)
-        task = await _poll_task(client, task_id)
+        log.info("Seedance task created: %s (audio=%s)", task_id, generate_audio)
+
+        # Poll the task. ARK returns success/failure via the task status doc;
+        # an output-audio safety failure surfaces in the failed task body, NOT
+        # as an HTTP 4xx. We catch it here and retry without generate_audio
+        # (per product-demo-studio's pattern) so the clip still ships, just silent.
+        try:
+            task = await _poll_task(client, task_id, api_key=api_key)
+        except RuntimeError as exc:
+            msg = str(exc)
+            audio_safety = (
+                "output audio may contain sensitive" in msg
+                or "audio.*sensitive" in msg.lower()
+            )
+            if generate_audio and audio_safety:
+                log.warning(
+                    "Seedance output-audio flagged sensitive — retrying without audio"
+                )
+                retry_id = await _try_create(refs=True, audio=False)
+                task = await _poll_task(client, retry_id, api_key=api_key)
+            else:
+                raise
 
     video_url = _extract_video_url(task)
     if not video_url:

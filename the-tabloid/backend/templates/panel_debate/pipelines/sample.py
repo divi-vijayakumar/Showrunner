@@ -50,7 +50,7 @@ async def _generate_sample(
     )
 
     # 1) Anchor portrait — skipped on text-to-video (no first frame anyway).
-    is_t2v = "text-to-video" in settings().fal_video_model
+    is_t2v = settings().text_to_video
     if is_t2v:
         log.info("sample t2v: skipping portrait")
         anchor_portrait = None
@@ -86,6 +86,7 @@ async def _generate_sample(
         aspect_ratio="9:16",
         first_frame_image=anchor_portrait,
         seed=seed,
+        generate_audio=True,
     )
     await db.update_segment(segment_id, {"progress": 90})
 

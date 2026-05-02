@@ -12,11 +12,13 @@ export function ChannelSelect({
   onModeChange,
   onPick,
   onShowHistory,
+  onShowDrama,
 }: {
   mode: SegmentMode
   onModeChange: (m: SegmentMode) => void
   onPick: (ch: ChannelInfo) => void
   onShowHistory: () => void
+  onShowDrama: () => void
 }) {
   const [channels, setChannels] = useState<Record<ChannelId, ChannelInfo> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -46,16 +48,28 @@ export function ChannelSelect({
             </h2>
             <div className="h-px w-12 bg-gradient-to-r from-fuchsia-500 to-transparent" />
           </div>
-          <button
-            type="button"
-            onClick={onShowHistory}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition"
-          >
-            <MSym name="history" className="!text-[14px] text-on-surface-variant" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-on-surface-variant">
-              History
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onShowDrama}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-fuchsia-600/20 border border-fuchsia-400/40 hover:bg-fuchsia-600/40 active:scale-95 transition"
+            >
+              <MSym name="movie" className="!text-[14px] text-fuchsia-300" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fuchsia-200">
+                Short Drama
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onShowHistory}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition"
+            >
+              <MSym name="history" className="!text-[14px] text-on-surface-variant" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-on-surface-variant">
+                History
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Mode toggle */}

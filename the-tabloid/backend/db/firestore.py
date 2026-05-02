@@ -50,6 +50,41 @@ _REAL_DB: Any = None
 _REAL_BUCKET: Any = None
 _INIT_TRIED: bool = False
 
+# When any Firestore call hits a stale-credentials RefreshError, this flag
+# trips and ALL subsequent FirestoreClient operations — across every instance
+# in the process — fall through to the in-memory mock. Avoids the demo-day
+# scenario where the pipeline wedges on the first update_segment because
+# `gcloud auth application-default login` has expired.
+_AUTH_DEAD: bool = False
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """Best-effort detector for Google ADC RefreshError + downstream gRPC
+    wrappers. Matches by class name to avoid importing google.auth here just
+    for the type check."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        name = type(cur).__name__
+        msg = str(cur)
+        if name == "RefreshError" or "Reauthentication is needed" in msg:
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _trip_auth_dead(reason: str) -> None:
+    global _AUTH_DEAD
+    if not _AUTH_DEAD:
+        _AUTH_DEAD = True
+        log.warning(
+            "Firestore auth failed (%s) — demoting to in-memory mock for the "
+            "rest of this process. Run `gcloud auth application-default login` "
+            "and restart uvicorn to re-enable Firestore writes.",
+            reason,
+        )
+
 
 def _init_firebase_once() -> tuple[Any, Any]:
     """Initialise firebase-admin at most once per process. Returns (db, bucket)
@@ -94,6 +129,25 @@ def _init_firebase_once() -> tuple[Any, Any]:
         log.warning("Firestore init failed (%s) — falling back to in-memory mock", exc)
         _REAL_DB = None
         _REAL_BUCKET = None
+        return _REAL_DB, _REAL_BUCKET
+
+    # Probe call: ADC creds load lazily, so a successful init() doesn't mean
+    # writes will work. We do a tiny synchronous get() against a sentinel
+    # doc — if Google Auth needs reauth, we trip _AUTH_DEAD now instead of
+    # letting every pipeline call hang behind 30+ seconds of gRPC retries.
+    try:
+        _REAL_DB.collection("_health").document("_probe").get(timeout=4.0)
+    except Exception as exc:
+        if _is_auth_failure(exc):
+            _trip_auth_dead(f"init probe: {exc}")
+            _REAL_DB = None
+            _REAL_BUCKET = None
+        else:
+            log.warning(
+                "Firestore probe returned an unexpected error (%s) — keeping "
+                "the real client; per-call try/except will handle if it recurs",
+                exc,
+            )
 
     return _REAL_DB, _REAL_BUCKET
 
@@ -105,8 +159,21 @@ class FirestoreClient:
     def __init__(self) -> None:
         self._real = None
         self._bucket = None
-        if not settings().mock:
+        # Hard kill-switch + auto-demote on prior auth failure both skip the
+        # firebase-admin init entirely and run against the in-memory mock.
+        if (
+            not settings().mock
+            and not settings().skip_firestore
+            and not _AUTH_DEAD
+        ):
             self._real, self._bucket = _init_firebase_once()
+
+    def _demote_to_mock(self, reason: str) -> None:
+        """Auth failed mid-call — disable the real client for this instance
+        and trip the global flag so future clients skip Firestore entirely."""
+        self._real = None
+        self._bucket = None
+        _trip_auth_dead(reason)
 
     # -- Segment doc -------------------------------------------------------
 
@@ -119,42 +186,66 @@ class FirestoreClient:
             "created_at": time.time(),
         }
         if self._real:
-            await asyncio.to_thread(
-                self._real.collection("segments").document(seg_id).set, doc
-            )
-        else:
+            try:
+                await asyncio.to_thread(
+                    self._real.collection("segments").document(seg_id).set, doc
+                )
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    self._demote_to_mock(f"create_segment: {exc}")
+                else:
+                    raise
+        if not self._real:
             _MOCK.segments[seg_id] = doc
             _MOCK.messages[seg_id] = []
         return seg_id
 
     async def get_segment(self, segment_id: str) -> dict[str, Any] | None:
         if self._real:
-            snap = await asyncio.to_thread(
-                self._real.collection("segments").document(segment_id).get
-            )
-            return snap.to_dict() if snap.exists else None
+            try:
+                snap = await asyncio.to_thread(
+                    self._real.collection("segments").document(segment_id).get
+                )
+                return snap.to_dict() if snap.exists else None
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    self._demote_to_mock(f"get_segment: {exc}")
+                else:
+                    raise
         return _MOCK.segments.get(segment_id)
 
     async def update_segment(self, segment_id: str, patch: dict[str, Any]) -> None:
         if self._real:
-            doc_ref = self._real.collection("segments").document(segment_id)
-            await asyncio.to_thread(doc_ref.set, patch, True)  # merge=True
-        else:
-            seg = _MOCK.segments.setdefault(segment_id, {})
-            seg.update(patch)
+            try:
+                doc_ref = self._real.collection("segments").document(segment_id)
+                await asyncio.to_thread(doc_ref.set, patch, True)  # merge=True
+                return
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    self._demote_to_mock(f"update_segment: {exc}")
+                else:
+                    raise
+        seg = _MOCK.segments.setdefault(segment_id, {})
+        seg.update(patch)
 
     async def write_message(self, segment_id: str, message: dict[str, Any]) -> None:
         payload = {**message, "created_at": time.time()}
         if self._real:
-            await asyncio.to_thread(
-                self._real.collection("segments")
-                .document(segment_id)
-                .collection("messages")
-                .add,
-                payload,
-            )
-        else:
-            _MOCK.messages.setdefault(segment_id, []).append(payload)
+            try:
+                await asyncio.to_thread(
+                    self._real.collection("segments")
+                    .document(segment_id)
+                    .collection("messages")
+                    .add,
+                    payload,
+                )
+                return
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    self._demote_to_mock(f"write_message: {exc}")
+                else:
+                    raise
+        _MOCK.messages.setdefault(segment_id, []).append(payload)
 
     async def list_segments(
         self,

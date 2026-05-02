@@ -9,7 +9,20 @@ export type ChannelId =
   | 'fashion'
   | 'investments_financials'
 
-export type SegmentStatus = 'queued' | 'debate' | 'generating' | 'ready' | 'failed'
+export type SegmentStatus =
+  | 'queued'
+  | 'debate'
+  | 'generating'
+  | 'ready'
+  | 'failed'
+  | 'cancelled'
+  // Short-drama template statuses — the panel_debate flow never emits these.
+  | 'stylizing'
+  | 'writing'
+  | 'set_design'
+  | 'casting'
+  | 'directing'
+  | 'stitching'
 
 export type SegmentMode = 'tabloid' | 'sample'
 

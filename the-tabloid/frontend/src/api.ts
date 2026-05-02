@@ -97,3 +97,76 @@ export async function castForStory(
 }
 
 export const apiBase = API_BASE
+
+// -- Short Drama -------------------------------------------------------------
+
+export interface DramaAsset {
+  asset_id: string
+  label: string
+  kind: 'character' | 'set'
+  description: string
+  filename: string
+  url: string
+  size_bytes: number
+}
+
+export async function uploadDramaAsset(
+  file: File,
+  label: string,
+  kind: 'character' | 'set',
+  description: string,
+): Promise<DramaAsset> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('label', label)
+  fd.append('kind', kind)
+  fd.append('description', description)
+  // Don't set Content-Type — browser sets the multipart boundary.
+  const r = await fetch(`${API_BASE}/api/drama/upload`, {
+    method: 'POST',
+    body: fd,
+  })
+  if (!r.ok) throw new Error(`upload failed: ${r.status} ${await r.text()}`)
+  return r.json()
+}
+
+export interface DramaGenerateBody {
+  beat_sheet: string
+  title: string
+  default_language: 'tamil' | 'english'
+  characters: { asset_id: string; label: string; description: string }[]
+  sets: { asset_id: string; label: string; description: string }[]
+}
+
+export async function generateDrama(
+  body: DramaGenerateBody,
+): Promise<{ segment_id: string }> {
+  return http('/api/drama/generate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function fetchRecentDramaAssets(
+  limit: number = 50,
+): Promise<{ assets: (DramaAsset & { has_label: boolean; uploaded_at: number })[] }> {
+  return http(`/api/drama/recent-assets?limit=${limit}`)
+}
+
+export async function cancelDrama(
+  segment_id: string,
+): Promise<{ segment_id: string; cancelled: boolean; newly_cancelled: boolean }> {
+  return http(`/api/drama/cancel/${segment_id}`, { method: 'POST' })
+}
+
+export async function relabelDramaAsset(
+  asset_id: string,
+  label: string,
+  kind: 'character' | 'set',
+  description: string = '',
+): Promise<DramaAsset> {
+  return http(`/api/drama/asset/${asset_id}/label`, {
+    method: 'POST',
+    body: JSON.stringify({ label, kind, description }),
+  })
+}
